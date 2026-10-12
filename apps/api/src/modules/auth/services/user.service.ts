@@ -18,7 +18,6 @@ import {
   Prisma,
   SportType,
   TokenType,
-  User,
   UserRole,
 } from '@openathlete/database';
 import {
@@ -34,7 +33,10 @@ import { Language } from 'src/common/constants/languages.constant';
 import { maskEmail } from 'src/common/utils/mask-email';
 import { SendEmailEvent } from 'src/events';
 import { emailTransportKind } from 'src/modules/notification/services/email-transport.service';
-import { PrismaService } from 'src/modules/prisma/services/prisma.service';
+import {
+  PrismaService,
+  UserRow,
+} from 'src/modules/prisma/services/prisma.service';
 
 import { AuthUser } from '../decorators/user.decorator';
 import { passwordResetUrl } from '../helpers/password-reset-url';
@@ -62,11 +64,11 @@ export class UserService {
       : undefined;
   }
 
-  async findOneOrFail(where: Prisma.UserWhereInput): Promise<User> {
+  async findOneOrFail(where: Prisma.UserWhereInput): Promise<UserRow> {
     return this.prisma.user.findFirstOrThrow({ where });
   }
 
-  async findOne(where: Prisma.UserWhereInput): Promise<User | null> {
+  async findOne(where: Prisma.UserWhereInput): Promise<UserRow | null> {
     return this.prisma.user.findFirst({ where });
   }
 
