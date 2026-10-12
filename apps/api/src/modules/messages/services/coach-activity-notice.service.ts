@@ -23,7 +23,7 @@ export const ACTIVITY_NOTICE_SELECT = {
 const MESSAGE_INCLUDE = {
   activityNotice: { select: ACTIVITY_NOTICE_SELECT },
   sender: {
-    select: { userId: true, firstName: true, lastName: true, email: true },
+    select: { userId: true, firstName: true, lastName: true },
   },
   readReceipts: true,
 } satisfies Prisma.MessageInclude;
