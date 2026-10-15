@@ -208,7 +208,7 @@ export function formatGoalSummary(
     parts.push(`Elevation Gain: ${Math.round(training.goalElevationGain)} m`);
   }
   if (typeof training.goalRpe === 'number') {
-    parts.push(`Target RPE: ${training.goalRpe}`);
+    parts.push(`Target RPE: ${training.goalRpe * 10}/10`);
   }
 
   return parts.length ? parts.join(' | ') : 'No numeric goals specified.';
