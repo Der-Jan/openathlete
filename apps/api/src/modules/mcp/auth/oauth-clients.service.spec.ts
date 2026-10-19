@@ -133,6 +133,111 @@ describe('OAuth clients', () => {
     expect(await service.find(DOCUMENT_URL)).toBeNull();
   });
 
+  it('accepts ChatGPT CIMD capabilities despite its private_key_jwt preference', async () => {
+    const service = new OAuthClientsService(
+      fakePrisma() as unknown as PrismaService,
+    );
+    fetchDocument.mockResolvedValue({
+      client_id: DOCUMENT_URL,
+      client_name: 'ChatGPT',
+      token_endpoint_auth_method: 'private_key_jwt',
+      token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+      redirect_uris: ['https://agent.example/callback'],
+    });
+    expect(await service.find(DOCUMENT_URL)).toMatchObject({
+      clientId: DOCUMENT_URL,
+      redirectUris: ['https://agent.example/callback'],
+    });
+  });
+
+  it.each([
+    { methods: ['private_key_jwt'] },
+    { methods: [] },
+    { methods: ['none', 123] },
+    { methods: ['none', ''] },
+    { methods: null },
+    { methods: 'none' },
+  ])(
+    'rejects unsupported or malformed capabilities: %j',
+    async ({ methods }) => {
+      const service = new OAuthClientsService(
+        fakePrisma() as unknown as PrismaService,
+      );
+      fetchDocument.mockResolvedValue({
+        client_id: DOCUMENT_URL,
+        token_endpoint_auth_method: 'none',
+        token_endpoint_auth_methods_supported: methods,
+        redirect_uris: ['https://agent.example/callback'],
+      });
+      expect(await service.find(DOCUMENT_URL)).toBeNull();
+    },
+  );
+
+  it.each([
+    { preference: 'private_key_jwt' },
+    { preference: 'client_secret_basic' },
+    { preference: 123 },
+    { preference: null },
+    { preference: '' },
+  ])(
+    'rejects a preference outside the capability list: %j',
+    async ({ preference }) => {
+      const prisma = fakePrisma();
+      const service = new OAuthClientsService(
+        prisma as unknown as PrismaService,
+      );
+      fetchDocument.mockResolvedValue({
+        client_id: DOCUMENT_URL,
+        token_endpoint_auth_method: preference,
+        token_endpoint_auth_methods_supported: ['none'],
+        redirect_uris: ['https://agent.example/callback'],
+      });
+      expect(await service.find(DOCUMENT_URL)).toBeNull();
+      expect(prisma.oAuthClient.upsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { methods: ['none'], preference: undefined },
+    { methods: ['none'], preference: 'none' },
+    { methods: ['private_key_jwt', 'none'], preference: 'private_key_jwt' },
+    { methods: undefined, preference: 'none' },
+  ])(
+    'accepts an explicit public capability or legacy public method: %j',
+    async ({ methods, preference }) => {
+      const service = new OAuthClientsService(
+        fakePrisma() as unknown as PrismaService,
+      );
+      fetchDocument.mockResolvedValue({
+        client_id: DOCUMENT_URL,
+        token_endpoint_auth_method: preference,
+        token_endpoint_auth_methods_supported: methods,
+        redirect_uris: ['https://agent.example/callback'],
+      });
+      expect(await service.find(DOCUMENT_URL)).toMatchObject({
+        clientId: DOCUMENT_URL,
+      });
+    },
+  );
+
+  it.each([{ methods: undefined }, { methods: ['private_key_jwt'] }])(
+    'does not make a private_key_jwt-only client public: %j',
+    async ({ methods }) => {
+      const prisma = fakePrisma();
+      const service = new OAuthClientsService(
+        prisma as unknown as PrismaService,
+      );
+      fetchDocument.mockResolvedValue({
+        client_id: DOCUMENT_URL,
+        token_endpoint_auth_method: 'private_key_jwt',
+        token_endpoint_auth_methods_supported: methods,
+        redirect_uris: ['https://agent.example/callback'],
+      });
+      expect(await service.find(DOCUMENT_URL)).toBeNull();
+      expect(prisma.oAuthClient.upsert).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps a known client while its document is unreachable', async () => {
     const stale = {
       clientId: DOCUMENT_URL,
