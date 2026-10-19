@@ -1518,5 +1518,6 @@
   "notifications": "Notifications",
   "training_reminders": "Séances du lendemain",
   "training_reminders_description": "Sur l'application mobile, une notification à 19 h la veille des séances prévues.",
-  "training_reminders_update_failed": "Impossible de modifier les rappels"
+  "training_reminders_update_failed": "Impossible de modifier les rappels",
+  "messages_no_unread": "Aucune conversation non lue"
 }
