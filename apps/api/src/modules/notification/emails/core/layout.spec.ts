@@ -6,6 +6,7 @@ describe('localized email layout', () => {
     ['EN', 'en', 'All rights reserved'],
     ['FR', 'fr', 'Tous droits réservés'],
     ['IT', 'it', 'Tutti i diritti riservati'],
+    ['PT_BR', 'pt-BR', 'Todos os direitos reservados'],
   ] as const)(
     'renders the %s language and footer',
     (language, htmlLanguage, footer) => {

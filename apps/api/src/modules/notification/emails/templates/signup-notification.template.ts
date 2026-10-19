@@ -58,6 +58,19 @@ const translations = {
       'Puoi contattare questo utente per dargli il benvenuto o verificare le sue esigenze.',
     note: 'Questa email viene inviata automaticamente ad ogni nuova registrazione.',
   },
+  PT_BR: {
+    title: 'Novo cadastro de usuário',
+    preview: 'Uma nova conta foi criada.',
+    intro: (name?: string) =>
+      name
+        ? `${name} acabou de se cadastrar no OpenAthlete.`
+        : 'Uma nova pessoa acabou de se cadastrar no OpenAthlete.',
+    emailLabel: 'E-mail',
+    nameLabel: 'Nome completo',
+    followUp:
+      'Fique à vontade para entrar em contato, dar as boas-vindas e entender as necessidades dessa pessoa.',
+    note: 'Este e-mail é enviado automaticamente a cada novo cadastro.',
+  },
 } as const;
 
 export function buildSignupNotificationEmail({

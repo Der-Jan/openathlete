@@ -11,8 +11,22 @@ import type { EmailLanguage } from '@openathlete/shared';
  */
 const STORAGE_KEY = 'openathlete-pending-language';
 
+const EMAIL_LANGUAGE_BY_LOCALE: Record<SupportedLocale, EmailLanguage> = {
+  en: 'EN',
+  fr: 'FR',
+  it: 'IT',
+  es: 'ES',
+  'pt-BR': 'PT_BR',
+};
+
+/** Converts a Paraglide locale to the code stored by the API. */
+export function toEmailLanguage(locale: SupportedLocale): EmailLanguage {
+  return EMAIL_LANGUAGE_BY_LOCALE[locale] ?? 'EN';
+}
+
 /** The language the app is shown in, as the API saves it. */
-export const currentLanguage = () => getLocale().toUpperCase() as EmailLanguage;
+export const currentLanguage = () =>
+  toEmailLanguage(getLocale() as SupportedLocale);
 
 export function rememberLanguageChoice(locale: SupportedLocale) {
   try {
@@ -47,7 +61,7 @@ export async function saveLanguageChoice(
   );
   if (!choice) return;
 
-  const language = choice.toUpperCase() as EmailLanguage;
+  const language = toEmailLanguage(choice as SupportedLocale);
   if (language === saved) return;
   try {
     await UserAPI.updateLanguage(language);

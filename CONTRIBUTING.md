@@ -536,7 +536,7 @@ model Workout {
 - Import messages: `import { m } from '@/paraglide/messages'`
 - Use message keys: `{m.my_message()}`
 - Message keys use `snake_case`
-- Add translations to both `en.json` and `fr.json` (and other locales if added)
+- Add translations to every catalog in `apps/web/messages/` (`en`, `fr`, `it`, `es`, `pt-BR`)
 
 **Adding new translations:**
 1. Add the message key to `apps/web/messages/en.json`:
@@ -545,7 +545,7 @@ model Workout {
      "workout_created_successfully": "Workout created successfully"
    }
    ```
-2. Add the translation to `apps/web/messages/fr.json`:
+2. Add the translation to every other catalog, for example `apps/web/messages/fr.json`:
    ```json
    {
      "workout_created_successfully": "Entraînement créé avec succès"

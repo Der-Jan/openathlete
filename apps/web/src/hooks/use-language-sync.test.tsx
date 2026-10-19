@@ -21,13 +21,15 @@ vi.mock('@/contexts/auth', () => ({
 vi.mock('@/paraglide/runtime', () => ({ setLocale: mocks.setLocale }));
 vi.mock('@/utils/language-choice', () => ({
   rememberLanguageChoice: mocks.rememberLanguageChoice,
+  toEmailLanguage: (locale: 'es' | 'pt-BR') =>
+    locale === 'pt-BR' ? 'PT_BR' : 'ES',
 }));
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-async function pick(locale: 'es') {
+async function pick(locale: 'es' | 'pt-BR') {
   let sync: ReturnType<typeof useLanguageSync>['syncLanguage'] = () =>
     Promise.resolve();
   function Probe() {
@@ -55,6 +57,14 @@ describe('useLanguageSync', () => {
     mocks.authenticated = true;
     await pick('es');
     expect(mocks.updateLanguage).toHaveBeenCalledWith('ES');
+    expect(mocks.rememberLanguageChoice).not.toHaveBeenCalled();
+  });
+
+  it('stores Brazilian Portuguese as PT_BR for signed-in users', async () => {
+    mocks.authenticated = true;
+    await pick('pt-BR');
+    expect(mocks.updateLanguage).toHaveBeenCalledWith('PT_BR');
+    expect(mocks.setLocale).toHaveBeenCalledWith('pt-BR');
     expect(mocks.rememberLanguageChoice).not.toHaveBeenCalled();
   });
 });

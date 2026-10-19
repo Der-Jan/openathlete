@@ -3,6 +3,7 @@ import client, { routes } from '@/utils/axios';
 import {
   CompleteOnboardingDto,
   CreateAccountDto,
+  EmailLanguage,
   PasswordResetDto,
   PasswordResetRequestDto,
   UpdateAccountDto,
@@ -25,9 +26,7 @@ export class UserAPI {
     return res.data;
   }
 
-  static async updateLanguage(
-    language: 'FR' | 'EN' | 'IT' | 'ES',
-  ): Promise<void> {
+  static async updateLanguage(language: EmailLanguage): Promise<void> {
     await client.patch(routes.user.updateLanguage, { language });
   }
 

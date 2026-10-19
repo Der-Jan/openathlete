@@ -190,9 +190,13 @@ export class ActivityFeedbackListener {
       ].join('\n');
 
       const targetLanguage =
-        { FR: 'French', EN: 'English', IT: 'Italian', ES: 'Spanish' }[
-          userLanguage
-        ] ?? 'English';
+        {
+          FR: 'French',
+          EN: 'English',
+          IT: 'Italian',
+          ES: 'Spanish',
+          PT_BR: 'Portuguese (Brazil)',
+        }[userLanguage] ?? 'English';
 
       const context = [
         '=== ATHLETE PROFILE & CURRENT LOAD ===',
@@ -212,7 +216,7 @@ export class ActivityFeedbackListener {
         '',
         `=== LANGUAGE REQUIREMENT ===`,
         `IMPORTANT: Generate all questions and QCM option labels in ${targetLanguage} (${userLanguage}).`,
-        `Use ${({ French: 'tu', Italian: 'tu', Spanish: 'tú', English: 'you' } as Record<string, string>)[targetLanguage]} form, direct and friendly coaching style.`,
+        `Use ${({ French: 'tu', Italian: 'tu', Spanish: 'tú', English: 'you', 'Portuguese (Brazil)': 'você' } as Record<string, string>)[targetLanguage]} form, direct and friendly coaching style.`,
       ].join('\n');
 
       const { questions } = await this.aiService.generateObject(

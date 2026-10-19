@@ -31,6 +31,17 @@ describe('saveLanguageChoice', () => {
     expect(api.updateLanguage).not.toHaveBeenCalled();
   });
 
+  it('maps Brazilian Portuguese to the API code', async () => {
+    rememberLanguageChoice('pt-BR');
+    await saveLanguageChoice('EN', '');
+    expect(api.updateLanguage).toHaveBeenCalledWith('PT_BR');
+  });
+
+  it('accepts a pt-BR language link', async () => {
+    await saveLanguageChoice('EN', '?lang=pt-BR');
+    expect(api.updateLanguage).toHaveBeenCalledWith('PT_BR');
+  });
+
   it('does nothing when the choice is already saved', async () => {
     rememberLanguageChoice('es');
     await saveLanguageChoice('ES', '');

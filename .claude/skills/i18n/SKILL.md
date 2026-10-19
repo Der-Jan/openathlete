@@ -5,11 +5,11 @@ description: Add or change user-facing text in OpenAthlete (web app Paraglide ca
 
 # User-facing text
 
-Supported languages: English (`en`), French (`fr`), Italian (`it`), Spanish (`es`). French users use the informal "tu" in AI-generated text and the formal "vous" in the UI, as the existing catalogs do.
+Web app supported languages: English (`en`), French (`fr`), Italian (`it`), Spanish (`es`), and Brazilian Portuguese (`pt-BR`). The marketing website (`apps/website`) currently supports `en`, `fr`, and `es`. French users use the informal "tu" in AI-generated text and the formal "vous" in the UI, as the existing catalogs do. Brazilian Portuguese uses "você" and natural imperative forms.
 
 ## Web app
 
-1. Add the key to all four catalogs in `apps/web/messages/{en,fr,it,es}.json`:
+1. Add the key to all five catalogs in `apps/web/messages/{en,fr,it,es,pt-BR}.json`:
    - use snake_case, prefixed by the feature (`full_import_started`, `calendar_day_events_label`);
    - write parameters as `{name}`;
    - add it next to related keys, not only at the end, to limit merge conflicts.

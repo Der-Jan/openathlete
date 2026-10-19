@@ -3,6 +3,14 @@ import type { EmailLanguage } from '@openathlete/shared';
 import { brand } from './brand';
 import { escapeHtml } from './utils';
 
+const htmlLanguages: Record<EmailLanguage, string> = {
+  FR: 'fr',
+  EN: 'en',
+  IT: 'it',
+  ES: 'es',
+  PT_BR: 'pt-BR',
+};
+
 export function layout({
   title,
   contentHtml,
@@ -31,10 +39,14 @@ export function layout({
       'Todos los derechos reservados',
       'Recibes este correo como resultado de una acción en tu cuenta.',
     ],
+    PT_BR: [
+      'Todos os direitos reservados',
+      'Você recebeu este e-mail após uma ação na sua conta.',
+    ],
   }[language];
   return `
 <!DOCTYPE html>
-<html lang="${language.toLowerCase()}">
+<html lang="${htmlLanguages[language]}">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="x-ua-compatible" content="ie=edge" />

@@ -1,19 +1,22 @@
 import { UserAPI } from '@/api/user';
 import { useAuthContext } from '@/contexts/auth';
 import { setLocale } from '@/paraglide/runtime';
-import { rememberLanguageChoice } from '@/utils/language-choice';
+import {
+  rememberLanguageChoice,
+  toEmailLanguage,
+} from '@/utils/language-choice';
+import type { SupportedLocale } from '@/utils/locales';
 import { useCallback } from 'react';
 
 export function useLanguageSync() {
   const { authenticated } = useAuthContext();
 
   const syncLanguage = useCallback(
-    async (lang: 'en' | 'fr' | 'it' | 'es') => {
+    async (lang: SupportedLocale) => {
       // Sync with backend if authenticated
       if (authenticated) {
         try {
-          const language = lang.toUpperCase() as 'FR' | 'EN' | 'IT' | 'ES';
-          await UserAPI.updateLanguage(language);
+          await UserAPI.updateLanguage(toEmailLanguage(lang));
         } catch (error) {
           console.error('Failed to sync language with backend:', error);
         }

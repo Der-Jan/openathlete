@@ -49,6 +49,16 @@ const translations = {
     ignoreNote:
       'Se non hai effettuato questa richiesta, puoi ignorare questa email.',
   },
+  PT_BR: {
+    title: 'Redefina sua senha',
+    preview: 'Redefina sua senha do OpenAthlete',
+    description:
+      'Recebemos uma solicitação para redefinir sua senha. Clique no botão abaixo para criar uma nova senha.',
+    buttonLabel: 'Escolher uma nova senha',
+    linkNote: (url: string) =>
+      `Se o botão não funcionar, copie e cole este link no seu navegador: ${url}`,
+    ignoreNote: 'Se você não fez esta solicitação, pode ignorar este e-mail.',
+  },
 } as const;
 
 export function buildPasswordResetEmail({

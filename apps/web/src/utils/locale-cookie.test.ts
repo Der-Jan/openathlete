@@ -29,6 +29,12 @@ describe('locale cookie', () => {
     expect(doc.cookie).not.toContain('OA_LOCALE=fr');
   });
 
+  it('accepts Brazilian Portuguese from the legacy cookie', () => {
+    const doc = jar(['PARAGLIDE_LOCALE=pt-BR']);
+    adoptLegacyLocaleCookie(doc);
+    expect(doc.cookie).toContain('OA_LOCALE=pt-BR');
+  });
+
   it('ignores anything that is not a supported language', () => {
     const doc = jar(['PARAGLIDE_LOCALE=de']);
     adoptLegacyLocaleCookie(doc);

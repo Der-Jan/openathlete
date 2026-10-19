@@ -84,6 +84,14 @@ const pushNotificationTranslations: PushNotificationTranslationsMap = {
         withoutQuestions: 'La tua attività è stata elaborata con successo.',
       },
     },
+    [Language.PT_BR]: {
+      title: 'Atividade processada',
+      body: {
+        withQuestions:
+          'Sua atividade foi analisada e as perguntas de feedback já estão disponíveis.',
+        withoutQuestions: 'Sua atividade foi analisada com sucesso.',
+      },
+    },
   },
 } as const;
 

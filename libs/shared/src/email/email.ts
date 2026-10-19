@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** A user's saved language, which their emails are written in. */
-export const emailLanguageSchema = z.enum(['FR', 'EN', 'IT', 'ES']);
+export const emailLanguageSchema = z.enum(['FR', 'EN', 'IT', 'ES', 'PT_BR']);
 
 export type EmailLanguage = z.infer<typeof emailLanguageSchema>;
 
@@ -20,48 +20,56 @@ const emailSubjects: {
     FR: 'Réinitialisation de votre mot de passe',
     EN: 'Reset your password',
     IT: 'Reimposta la tua password',
+    PT_BR: 'Redefina sua senha',
   },
   welcome: {
     ES: 'Te damos la bienvenida a OpenAthlete',
     FR: 'Bienvenue sur OpenAthlete',
     EN: 'Welcome to OpenAthlete',
     IT: 'Benvenuto su OpenAthlete',
+    PT_BR: 'Boas-vindas ao OpenAthlete',
   },
   'subscription-confirmation': {
     ES: 'Gracias por apoyar OpenAthlete',
     FR: 'Merci de soutenir OpenAthlete',
     EN: 'Thank you for supporting OpenAthlete',
     IT: 'Grazie per sostenere OpenAthlete',
+    PT_BR: 'Agradecemos por apoiar o OpenAthlete',
   },
   'athlete-invitation': {
     ES: 'Invitación para unirte a OpenAthlete',
     FR: 'Invitation à rejoindre OpenAthlete',
     EN: 'Invitation to join OpenAthlete',
     IT: 'Invito a unirsi a OpenAthlete',
+    PT_BR: 'Convite para entrar no OpenAthlete',
   },
   'athlete-invitation-existing': {
     ES: 'Nueva invitación de entrenador',
     FR: 'Nouvelle invitation de coach',
     EN: 'New coach invitation',
     IT: 'Nuovo invito da coach',
+    PT_BR: 'Novo convite de treinador',
   },
   'coach-invitation-new': {
     ES: 'Invitación para unirte a OpenAthlete',
     FR: 'Invitation à rejoindre OpenAthlete',
     EN: 'Invitation to join OpenAthlete',
     IT: 'Invito a unirsi a OpenAthlete',
+    PT_BR: 'Convite para entrar no OpenAthlete',
   },
   'coach-invitation-existing': {
     ES: 'Nueva invitación de entrenador',
     FR: 'Nouvelle invitation de coach',
     EN: 'New coach invitation',
     IT: 'Nuovo invito da coach',
+    PT_BR: 'Novo convite de treinador',
   },
   'signup-notification': {
     ES: 'Nuevo registro de usuario',
     FR: 'Nouvelle inscription utilisateur',
     EN: 'New user signup',
     IT: 'Nuova registrazione utente',
+    PT_BR: 'Novo cadastro de usuário',
   },
 } as const;
 

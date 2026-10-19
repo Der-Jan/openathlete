@@ -63,6 +63,20 @@ const translations = {
     helpNote:
       'Hai bisogno di aiuto? Rispondi semplicemente a questa email e ti risponderemo al più presto.',
   },
+  PT_BR: {
+    title: 'Boas-vindas ao OpenAthlete',
+    preview: (name?: string) =>
+      name ? `Boas-vindas, ${name}!` : 'Boas-vindas ao OpenAthlete',
+    greeting: (name?: string) =>
+      name
+        ? `É ótimo ter você com a gente, ${name}.`
+        : 'É ótimo ter você com a gente.',
+    description:
+      'Agora você pode configurar seus objetivos, importar suas sessões e explorar seu painel.',
+    buttonLabel: 'Acessar o painel',
+    helpNote:
+      'Precisa de ajuda? Basta responder a este e-mail e ajudaremos você rapidamente.',
+  },
 } as const;
 
 export function buildWelcomeEmail({

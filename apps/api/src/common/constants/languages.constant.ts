@@ -3,4 +3,5 @@ export enum Language {
   EN = 'EN',
   IT = 'IT',
   ES = 'ES',
+  PT_BR = 'PT_BR',
 }

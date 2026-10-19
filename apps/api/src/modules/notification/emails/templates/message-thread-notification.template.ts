@@ -70,7 +70,31 @@ const translations = {
       'Questi messaggi sono stati raggruppati per evitare di inviarti una email per ogni singolo messaggio.',
     from: (senderName: string, time: string) => `Da ${senderName} — ${time}`,
   },
+  PT_BR: {
+    subject: 'Novas mensagens na sua caixa de entrada do OpenAthlete',
+    title: 'Novas mensagens na sua caixa de entrada',
+    preview: (count: number) =>
+      count > 1
+        ? `${count} novas mensagens em uma conversa`
+        : 'Nova mensagem em uma conversa',
+    intro: (threadTitle?: string | null) =>
+      threadTitle
+        ? `Você recebeu novas mensagens na conversa “${threadTitle}” no OpenAthlete.`
+        : 'Você recebeu novas mensagens em uma das suas conversas no OpenAthlete.',
+    openInbox: 'Abrir caixa de entrada',
+    footerNote:
+      'Estas mensagens foram agrupadas para evitar o envio de um e-mail para cada mensagem.',
+    from: (senderName: string, time: string) => `De ${senderName} — ${time}`,
+  },
 } as const;
+
+const dateLocales: Record<EmailLanguage, string> = {
+  ES: 'es-ES',
+  FR: 'fr-FR',
+  EN: 'en-US',
+  IT: 'it-IT',
+  PT_BR: 'pt-BR',
+};
 
 export function messageThreadNotificationSubject(
   language: EmailLanguage = Language.FR,
@@ -102,21 +126,12 @@ export function buildMessageThreadNotificationEmail({
   const items = messages
     .map((message) => {
       const createdAt = new Date(message.createdAtIso);
-      const timeLabel = createdAt.toLocaleString(
-        language === Language.ES
-          ? 'es-ES'
-          : language === Language.FR
-            ? 'fr-FR'
-            : language === Language.IT
-              ? 'it-IT'
-              : 'en-US',
-        {
-          hour: '2-digit',
-          minute: '2-digit',
-          day: '2-digit',
-          month: '2-digit',
-        },
-      );
+      const timeLabel = createdAt.toLocaleString(dateLocales[language], {
+        hour: '2-digit',
+        minute: '2-digit',
+        day: '2-digit',
+        month: '2-digit',
+      });
 
       return `<li style="margin-bottom:8px;font-size:14px;line-height:20px;">
         <p style="margin:0 0 4px 0;">${message.contentSnippet}</p>

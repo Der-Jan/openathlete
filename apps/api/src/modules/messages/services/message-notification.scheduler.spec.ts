@@ -56,6 +56,7 @@ describe('MessageNotificationScheduler language', () => {
     const { scheduler, sentTo } = setup([
       participant(1, 'ana@example.com', 'ES'),
       participant(2, 'lea@example.com', 'EN'),
+      participant(3, 'bia@example.com', 'PT_BR'),
     ]);
 
     await scheduler.sendBatchedMessageNotifications();
@@ -68,5 +69,10 @@ describe('MessageNotificationScheduler language', () => {
     const english = sentTo('lea@example.com');
     expect(english.subject).toBe('New messages in your OpenAthlete inbox');
     expect(english.html).toContain('<html lang="en">');
+
+    const portuguese = sentTo('bia@example.com');
+    expect(portuguese.subject).toBe(messageThreadNotificationSubject('PT_BR'));
+    expect(portuguese.html).toContain('<html lang="pt-BR">');
+    expect(portuguese.html).toContain('Abrir caixa de entrada');
   });
 });

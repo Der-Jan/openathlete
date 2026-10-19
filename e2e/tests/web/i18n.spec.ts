@@ -8,6 +8,7 @@ for (const [locale, calendar] of [
   ['fr', 'Calendrier'],
   ['it', 'Calendario'],
   ['es', 'Calendario'],
+  ['pt-BR', 'Calendário'],
 ]) {
   test(`renders the dashboard in ${locale}`, async ({ page, context }) => {
     await context.addCookies([
