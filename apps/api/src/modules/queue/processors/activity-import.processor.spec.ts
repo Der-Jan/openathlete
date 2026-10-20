@@ -42,6 +42,7 @@ function setup(created: boolean) {
     {} as never,
     {} as never,
     queue as never,
+    { markDispatched: jest.fn() } as never,
     emitter as never,
   );
   return { processor, emitter, queue };
@@ -70,7 +71,12 @@ describe('ActivityImportProcessor', () => {
         payload: { eventId: 30, kind: 'ACTIVITY', deliveryKey: 'import:30' },
       }),
     );
-    expect(queue.addActivityProcessingJob).toHaveBeenCalledWith(31, 30, false);
+    expect(queue.addActivityProcessingJob).toHaveBeenCalledWith(
+      31,
+      30,
+      false,
+      undefined,
+    );
   });
 
   it('stays silent for an activity that was already saved', async () => {

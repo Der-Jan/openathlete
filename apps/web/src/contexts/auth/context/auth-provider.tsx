@@ -2,7 +2,12 @@ import { UserAPI } from '@/api/user';
 import { getPath } from '@/routes/paths';
 import { isValidToken } from '@/utils/auth';
 import { isNetworkError } from '@/utils/axios';
+import { getApiBaseUrl } from '@/utils/capacitor';
 import { signOutFirebase } from '@/utils/firebase-auth';
+import {
+  bindLocalHealthSession,
+  clearLocalHealthSession,
+} from '@/utils/healthkit';
 import { saveLanguageChoice } from '@/utils/language-choice';
 import { ACCESS_TOKEN, clear, getItem, setItem } from '@/utils/local-storage';
 import { initializePushNotifications } from '@/utils/push-notifications';
@@ -158,7 +163,8 @@ export function AuthProvider({ children }: Props) {
     }
   }, []);
 
-  const logout = useCallback((navigate?: (path: string) => void) => {
+  const logout = useCallback(async (navigate?: (path: string) => void) => {
+    await clearLocalHealthSession().catch(() => undefined);
     posthog.capture('user_logged_out');
     posthog.reset();
     clear();
@@ -183,6 +189,21 @@ export function AuthProvider({ children }: Props) {
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    const update = () => {
+      if (state.user) {
+        void bindLocalHealthSession({
+          apiBaseURL: getApiBaseUrl(),
+          accountID: String(state.user.userId),
+        }).catch(() => undefined);
+      }
+    };
+    update();
+    window.addEventListener('openathlete-session-token', update);
+    return () =>
+      window.removeEventListener('openathlete-session-token', update);
+  }, [state.user]);
 
   // Back online: try again without waiting for the user
   useEffect(() => {

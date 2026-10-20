@@ -13,7 +13,6 @@ import {
   ConnectorsUnavailable,
   offeredProviders,
 } from '@/components/connectors';
-import { ImportFitDialog } from '@/components/import-fit-dialog/import-fit-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -52,6 +51,8 @@ import {
 } from '@openathlete/shared';
 
 import { CalendarFeedSection } from './calendar-feed-section';
+import { HealthKitSection } from './healthkit-section';
+import { HealthKitWorkoutsSection } from './healthkit-workouts-section';
 import { SettingsSection } from './settings-section';
 
 const SUPPORTED_PROVIDERS: ConnectorProvider[] = [
@@ -511,15 +512,8 @@ export function ConnectorsTab() {
         </div>
       </SettingsSection>
 
-      {roles?.includes('ATHLETE') && (
-        <SettingsSection
-          title={m.fit_import_title()}
-          description={m.fit_import_help()}
-        >
-          <ImportFitDialog />
-        </SettingsSection>
-      )}
-
+      {roles?.includes('ATHLETE') && <HealthKitSection />}
+      {roles?.includes('ATHLETE') && <HealthKitWorkoutsSection />}
       {roles?.includes('ATHLETE') && <CalendarFeedSection />}
 
       <ConfirmAction

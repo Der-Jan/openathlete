@@ -79,7 +79,7 @@ export class QueueService {
   ): Promise<void> {
     try {
       const priority = this.calculatePriority(activity.startDate);
-      const jobId = `import-${account.provider}-${activity.externalId}`;
+      const jobId = `import-${account.athleteId}-${account.provider}-${activity.externalId}`;
 
       let existingJob;
       try {
@@ -146,7 +146,7 @@ export class QueueService {
       }> = [];
 
       for (const activity of sortedActivities) {
-        const jobId = `import-${account.provider}-${activity.externalId}`;
+        const jobId = `import-${account.athleteId}-${account.provider}-${activity.externalId}`;
         let existingJob;
         try {
           existingJob = await this.activityImportQueue.getJob(jobId);
@@ -208,13 +208,18 @@ export class QueueService {
     eventActivityId: number,
     eventId: number,
     bulkImport = false,
+    idempotencyKey?: string,
   ): Promise<void> {
     try {
-      await this.activityProcessingQueue.add('process', {
-        eventActivityId,
-        eventId,
-        bulkImport,
-      });
+      await this.activityProcessingQueue.add(
+        'process',
+        {
+          eventActivityId,
+          eventId,
+          bulkImport,
+        },
+        idempotencyKey ? { jobId: idempotencyKey } : undefined,
+      );
     } catch (error) {
       this.logger.error(
         `Failed to add activity processing job for eventActivityId ${eventActivityId}: ${error instanceof Error ? error.message : String(error)}`,

@@ -41,7 +41,10 @@ export interface ImportedActivity {
 
 /** An imported activity, and whether this import is the one that saved it */
 export interface ImportResult {
-  activity: EventActivity;
+  activity: EventActivity | null;
   /** False when it was already saved, e.g. by an earlier webhook or sync */
   created: boolean;
+  receiptId?: number;
+  revision?: number;
+  processingPending?: boolean;
 }

@@ -13,6 +13,7 @@ vi.mock('@/utils/push-notifications', () => ({
   initializePushNotifications: () => Promise.resolve(),
   sendPendingTokenIfAny: () => undefined,
 }));
+vi.mock('@/utils/time-zone', () => ({ saveTimeZone: () => Promise.resolve() }));
 vi.mock('posthog-js', () => ({
   default: { identify: vi.fn(), capture: vi.fn(), reset: vi.fn() },
 }));
