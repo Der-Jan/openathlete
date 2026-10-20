@@ -6,7 +6,13 @@ import { signIn } from '../../support/browser';
 import { API_URL } from '../../support/env';
 import { trackPageProblems } from '../../support/page-health';
 
-test.use({ storageState: { cookies: [], origins: [] } });
+// Tall enough for the whole month: a drag needs both cards on screen, and
+// the session and the activity can sit on two rows, the second one below
+// the fold of a 720-pixel window (a Sunday session run on Monday)
+test.use({
+  storageState: { cookies: [], origins: [] },
+  viewport: { width: 1280, height: 1400 },
+});
 
 const DAY = 24 * 3600 * 1000;
 
