@@ -22,7 +22,7 @@ Includes the iOS branch, daily metric backend, workout backend, shared client/ba
 - **Blocking for resolving every workout:** ambiguous receipts have no resolution workflow. Clear matches are automatic; preserve unresolved sources without counting duplicate training load.
 - **Required device acceptance:** successful manual upload, retained consent and eventual native background sync after network loss/lock/token refresh still need recorded acceptance on the consolidated build. Prior successful installation is not upload acceptance.
 - **Release requirements:** update App ID/profiles for HealthKit Background Delivery; validate default/Release signing, privacy policy/App Store disclosures and existing coaching/AI uses of imported data. No App Store submission is part of this PR.
-- **Migration review:** two additive migrations; one replaces global external-ID uniqueness, backfills source athlete identity and legacy source links. Evaluate backfill/index cost and mixed-version deployment before a large production rollout. No destructive down migration or automatic deployment is included.
+- **Migration review:** two migrations; one replaces global external-ID uniqueness, backfills source athlete identity and legacy source links. Evaluate backfill/index cost and mixed-version deployment before a large production rollout. No destructive down migration or automatic deployment is included.
 
 ## Validation
 

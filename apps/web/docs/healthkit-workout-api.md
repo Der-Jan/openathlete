@@ -210,8 +210,9 @@ All accepted payloads and revisions remain in PostgreSQL for future inspection
 and resolution policies. Their storage is not a new public raw-health read API,
 and these tables are not added to MCP tools or AI prompts. Absent channels and
 absent workouts never request deletion. Explicit source detachment, HealthKit
-deletion synchronization, review resolution and background client upload remain
-separate work. Manual native reading and upload are implemented on this integration branch.
+deletion synchronization and review resolution remain separate work. Manual
+native reading/upload and opt-in native background uploads are implemented;
+iOS controls background execution and delivery timing.
 
 ## Verification
 
