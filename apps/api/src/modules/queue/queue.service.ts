@@ -34,6 +34,8 @@ export class QueueService {
     private readonly activityProcessingQueue: Queue<ActivityProcessingJobData>,
     @InjectQueue('provider-full-import')
     private readonly fullImportQueue: Queue<ProviderFullImportJobData>,
+    @InjectQueue('provider-recent-sync')
+    private readonly recentSyncQueue: Queue<ProviderFullImportJobData>,
   ) {}
 
   /**
@@ -57,6 +59,20 @@ export class QueueService {
       'full-import',
       { providerAccountId },
       { jobId },
+    );
+  }
+
+  /** Separate from one-time history imports; coalesce taps and concurrent requests. */
+  async addRecentStravaSyncJob(providerAccountId: number): Promise<void> {
+    await this.recentSyncQueue.add(
+      'strava-recent-sync',
+      { providerAccountId },
+      {
+        deduplication: {
+          id: `strava-recent-${providerAccountId}`,
+          ttl: 60_000,
+        },
+      },
     );
   }
 

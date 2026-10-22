@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 import {
   ConnectorProvider,
   ProviderAccount,
@@ -37,6 +39,60 @@ describe('Strava full import', () => {
     distance: 35700,
     duration: 14400,
     raw: {},
+  });
+
+  it('catches up only a bounded date range and skips existing source links', async () => {
+    const { service, prisma, queue } = setup([]);
+    prisma.activitySource.findMany.mockResolvedValue([
+      { externalId: 's1' },
+    ] as never);
+    const listing = jest
+      .spyOn(service, 'importActivities')
+      .mockResolvedValue([
+        fetched('s1', SportType.CYCLING),
+        fetched('s2', SportType.CYCLING),
+      ]);
+    const endDate = new Date('2026-10-22T12:00:00Z');
+    await expect(service.queueRecentImport(account, endDate)).resolves.toEqual({
+      queuedActivities: 1,
+    });
+    expect(listing).toHaveBeenCalledWith(account, {
+      startDate: new Date('2026-09-22T12:00:00Z'),
+      endDate,
+      limit: 1000,
+    });
+    expect(queue.addActivityImportJobs.mock.calls[0][1]).toEqual([
+      fetched('s2', SportType.CYCLING),
+    ]);
+  });
+
+  it('asks Strava to filter the date range instead of scanning the whole history', async () => {
+    const { service } = setup([]);
+    jest
+      .spyOn(service, 'getValidAccessToken')
+      .mockResolvedValue('synthetic-token');
+    const request = jest.spyOn(axios, 'get').mockResolvedValue({ data: [] });
+    try {
+      const startDate = new Date('2026-09-22T12:00:00Z');
+      const endDate = new Date('2026-10-22T12:00:00Z');
+      await service.importActivities(account, {
+        startDate,
+        endDate,
+        limit: 1000,
+      });
+      expect(request).toHaveBeenCalledWith(
+        expect.stringContaining('per_page=200'),
+        expect.objectContaining({
+          params: {
+            after: startDate.getTime() / 1000,
+            before: endDate.getTime() / 1000,
+          },
+        }),
+      );
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 
   it('files known trail runs under trail running, and queues the new ones', async () => {

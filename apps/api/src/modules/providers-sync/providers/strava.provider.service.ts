@@ -278,6 +278,14 @@ export class StravaProviderService
             // 200 is the largest page Strava allows: 7x fewer rate-limited calls
             `https://www.strava.com/api/v3/athlete/activities?page=${page}&per_page=200`,
             {
+              params: {
+                ...(options?.startDate && {
+                  after: Math.floor(options.startDate.getTime() / 1000),
+                }),
+                ...(options?.endDate && {
+                  before: Math.ceil(options.endDate.getTime() / 1000),
+                }),
+              },
               headers: {
                 Authorization: `Bearer ${accessToken}`,
               },
@@ -477,6 +485,22 @@ export class StravaProviderService
       // Re-throw to be caught by the caller
       throw error;
     }
+  }
+
+  /** Bounded catch-up after missed webhooks, without changing history-import state. */
+  async queueRecentImport(
+    account: ProviderAccount,
+    endDate: Date,
+  ): Promise<FullImportResult> {
+    const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const activities = await this.importActivities(account, {
+      startDate,
+      endDate,
+      limit: 1000,
+    });
+    return {
+      queuedActivities: await this.enqueueActivities(account, activities),
+    };
   }
 
   /**
