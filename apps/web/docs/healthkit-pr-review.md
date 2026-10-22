@@ -73,6 +73,8 @@ Validation: repository generation, all locale checks, lint, types and unit tests
 
 Deployment: update shared/API and recent-sync workers together, then distribute a new native web bundle. An older iPhone build continues to work but cannot display the new completion feedback.
 
+Rollout verification: the production API image built from commit `2e76dfd9` passed a real-Redis preflight with isolated synthetic queues (deduplicated IDs, pending/completed/failed imports, empty result and foreign-account denial). After deployment the API was healthy, one recent-sync worker was connected, and the same Redis checks passed again. Public health/status-route probes returned 200/401. No database migration or instance credentials were changed. Signed iOS build `2026102210` archived successfully and App Store Connect accepted the TestFlight upload; Apple processing/distribution is separate from upload acceptance.
+
 ## Branch organization
 
 The fork keeps one branch for implemented iPhone work and one branch per future feature:
