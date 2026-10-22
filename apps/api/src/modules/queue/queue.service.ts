@@ -1,9 +1,10 @@
 import { Queue } from 'bullmq';
 
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { ProviderAccount } from '@openathlete/database';
+import { ProviderSyncStatus } from '@openathlete/shared';
 
 import { ImportedActivity } from '../providers-sync/base/provider-import.interface';
 
@@ -11,6 +12,11 @@ export interface ActivityImportJobData {
   providerAccountId: number;
   activity: ImportedActivity<Date | string>;
   bulkImport?: boolean;
+}
+
+export interface ProviderRecentSyncJobData {
+  providerAccountId: number;
+  activityJobIds?: string[];
 }
 
 export interface ProviderFullImportJobData {
@@ -35,7 +41,7 @@ export class QueueService {
     @InjectQueue('provider-full-import')
     private readonly fullImportQueue: Queue<ProviderFullImportJobData>,
     @InjectQueue('provider-recent-sync')
-    private readonly recentSyncQueue: Queue<ProviderFullImportJobData>,
+    private readonly recentSyncQueue: Queue<ProviderRecentSyncJobData>,
   ) {}
 
   /**
@@ -63,8 +69,8 @@ export class QueueService {
   }
 
   /** Separate from one-time history imports; coalesce taps and concurrent requests. */
-  async addRecentStravaSyncJob(providerAccountId: number): Promise<void> {
-    await this.recentSyncQueue.add(
+  async addRecentStravaSyncJob(providerAccountId: number): Promise<string> {
+    const job = await this.recentSyncQueue.add(
       'strava-recent-sync',
       { providerAccountId },
       {
@@ -74,6 +80,59 @@ export class QueueService {
         },
       },
     );
+    return job.id!;
+  }
+
+  async getRecentStravaSyncStatus(
+    providerAccountId: number,
+    syncId: string,
+  ): Promise<ProviderSyncStatus> {
+    const job = await this.recentSyncQueue.getJob(syncId);
+    // Never expose another athlete's job, counts, or provider failures.
+    if (!job || job.data.providerAccountId !== providerAccountId)
+      throw new NotFoundException('Sync not found');
+    const state = await job.getState();
+    const ids = job.data.activityJobIds;
+    const result: ProviderSyncStatus = {
+      state: 'running',
+      total: ids?.length ?? 0,
+      imported: 0,
+      needsReview: 0,
+      failed: 0,
+      pending: 0,
+      retrying: state === 'delayed',
+    };
+    let unavailable = false;
+    await Promise.all(
+      (ids ?? []).map(async (id) => {
+        const child = await this.activityImportQueue.getJob(id);
+        if (!child || child.data.providerAccountId !== providerAccountId) {
+          unavailable = true;
+          return;
+        }
+        const childState = await child.getState();
+        if (childState === 'completed') {
+          if (child.returnvalue?.status === 'needs_review')
+            result.needsReview++;
+          else if (child.returnvalue?.success === true) result.imported++;
+          else unavailable = true;
+        } else if (childState === 'failed') result.failed++;
+        else if (childState === 'unknown') unavailable = true;
+        else {
+          result.pending++;
+          if (childState === 'delayed') result.retrying = true;
+        }
+      }),
+    );
+    if (state === 'failed' || job.returnvalue?.skipped) result.state = 'failed';
+    else if (state === 'completed') {
+      // Old workers and expired child jobs cannot prove a successful import.
+      if (!ids || unavailable) result.state = 'unavailable';
+      else if (!result.pending)
+        result.state = result.failed ? 'failed' : 'completed';
+    } else if (state === 'waiting' || state === 'prioritized')
+      result.state = 'queued';
+    return result;
   }
 
   private calculatePriority(startDate: string | Date): number {

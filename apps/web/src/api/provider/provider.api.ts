@@ -4,7 +4,9 @@ import {
   ConnectorProvider,
   ProviderPreferencesDto,
   ProviderSyncResponse,
+  ProviderSyncStatus,
   providerSyncResponseSchema,
+  providerSyncStatusSchema,
 } from '@openathlete/shared';
 
 export interface ConnectedProvider {
@@ -34,6 +36,16 @@ export class ProviderAPI {
   static async syncStrava(): Promise<ProviderSyncResponse> {
     const res = await client.post(routes.provider.syncStrava);
     return providerSyncResponseSchema.parse(res.data);
+  }
+
+  static async getStravaSyncStatus(
+    syncId: string,
+    signal?: AbortSignal,
+  ): Promise<ProviderSyncStatus> {
+    const res = await client.get(routes.provider.stravaSyncStatus(syncId), {
+      signal,
+    });
+    return providerSyncStatusSchema.parse(res.data);
   }
 
   static async getOAuthUri(

@@ -491,6 +491,7 @@ export class StravaProviderService
   async queueRecentImport(
     account: ProviderAccount,
     endDate: Date,
+    onActivities?: (jobIds: string[]) => Promise<void>,
   ): Promise<FullImportResult> {
     const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
     const activities = await this.importActivities(account, {
@@ -499,7 +500,11 @@ export class StravaProviderService
       limit: 1000,
     });
     return {
-      queuedActivities: await this.enqueueActivities(account, activities),
+      queuedActivities: await this.enqueueActivities(
+        account,
+        activities,
+        onActivities,
+      ),
     };
   }
 
@@ -548,8 +553,10 @@ export class StravaProviderService
   private async enqueueActivities(
     account: ProviderAccount,
     activities: ImportedActivity[],
+    onActivities?: (jobIds: string[]) => Promise<void>,
   ): Promise<number> {
     if (activities.length === 0) {
+      await onActivities?.([]);
       return 0;
     }
 
@@ -583,6 +590,12 @@ export class StravaProviderService
       (a) => !existingIdsSet.has(a.externalId),
     );
 
+    await onActivities?.(
+      newActivities.map(
+        (activity) =>
+          `import-${account.athleteId}-${account.provider}-${activity.externalId}`,
+      ),
+    );
     if (newActivities.length === 0) {
       this.logger.log('All activities already imported');
       return 0;

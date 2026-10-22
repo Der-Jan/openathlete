@@ -1,6 +1,6 @@
 import { Job } from 'bullmq';
 
-import { ProviderFullImportJobData } from '../queue.service';
+import { ProviderRecentSyncJobData } from '../queue.service';
 import { ProviderRecentSyncProcessor } from './provider-recent-sync.processor';
 
 jest.mock('../../providers-sync/providers', () => ({
@@ -17,7 +17,7 @@ describe('Strava catch-up worker', () => {
   const job = {
     data: { providerAccountId: 7 },
     timestamp: Date.parse('2026-10-22T12:00:00Z'),
-  } as Job<ProviderFullImportJobData>;
+  } as Job<ProviderRecentSyncJobData>;
   function setup(value: object | null = account) {
     const prisma = {
       providerAccount: { findUnique: jest.fn().mockResolvedValue(value) },
@@ -42,6 +42,7 @@ describe('Strava catch-up worker', () => {
     expect(strava.queueRecentImport).toHaveBeenCalledWith(
       account,
       new Date(job.timestamp),
+      expect.any(Function),
     );
     expect(Object.keys(prisma.providerAccount)).toEqual(['findUnique']);
   });
@@ -60,6 +61,26 @@ describe('Strava catch-up worker', () => {
       expect(strava.queueRecentImport).not.toHaveBeenCalled();
     },
   );
+  it('persists child ids before enqueue and retains completed children across listing retries', async () => {
+    const { processor, strava } = setup();
+    const retryJob = {
+      ...job,
+      data: { providerAccountId: 7, activityJobIds: ['previous'] },
+      updateData: jest.fn(),
+    };
+    strava.queueRecentImport.mockImplementation(
+      async (_account, _date, record) => {
+        await record(['next', 'previous']);
+        return { queuedActivities: 1 };
+      },
+    );
+    await processor.process(retryJob as never);
+    expect(retryJob.updateData).toHaveBeenCalledWith({
+      providerAccountId: 7,
+      activityJobIds: ['previous', 'next'],
+    });
+  });
+
   it('leaves transient failures retryable', async () => {
     const { processor, strava } = setup();
     strava.queueRecentImport.mockRejectedValue(new Error('Temporary failure'));

@@ -73,6 +73,7 @@ test('connects Zwift in settings and sends today’s planned workout from Sync',
     },
   };
   let stravaRequests = 0;
+  let stravaStatusRequests = 0;
   await page.route('https://training.example.org/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/provider/strava/sync')) {
@@ -80,7 +81,22 @@ test('connects Zwift in settings and sends today’s planned workout from Sync',
       stravaRequests++;
       await route.fulfill({
         status: 202,
-        json: { success: true, queued: true },
+        json: { success: true, queued: true, syncId: '12' },
+      });
+      return;
+    }
+    if (path.endsWith('/provider/strava/sync/12')) {
+      stravaStatusRequests++;
+      await route.fulfill({
+        json: {
+          state: stravaStatusRequests === 1 ? 'running' : 'completed',
+          total: 1,
+          imported: stravaStatusRequests === 1 ? 0 : 1,
+          pending: stravaStatusRequests === 1 ? 1 : 0,
+          needsReview: 0,
+          failed: 0,
+          retrying: false,
+        },
       });
       return;
     }
@@ -166,9 +182,17 @@ test('connects Zwift in settings and sends today’s planned workout from Sync',
     .getByRole('button', { name: 'Sync Strava now', exact: true })
     .click();
   await expect(
-    page.getByText('Strava sync started on the server.', { exact: false }),
+    page.getByText('Checking Strava and importing missing activities…', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Activities imported or linked to existing training: 1.', {
+      exact: true,
+    }),
   ).toBeVisible();
   expect(stravaRequests).toBe(1);
+  expect(stravaStatusRequests).toBeGreaterThanOrEqual(2);
   await page
     .getByRole('button', { name: 'Send to Zwift', exact: true })
     .click();

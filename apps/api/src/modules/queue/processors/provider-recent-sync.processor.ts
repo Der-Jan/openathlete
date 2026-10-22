@@ -7,7 +7,7 @@ import { ConnectorProvider } from '@openathlete/database';
 
 import { PrismaService } from '../../prisma/services/prisma.service';
 import { StravaProviderService } from '../../providers-sync/providers';
-import { ProviderFullImportJobData } from '../queue.service';
+import { ProviderRecentSyncJobData } from '../queue.service';
 
 /** A separate queue prevents older history workers from consuming catch-up jobs. */
 @Processor('provider-recent-sync', { concurrency: 1 })
@@ -20,7 +20,7 @@ export class ProviderRecentSyncProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<ProviderFullImportJobData>) {
+  async process(job: Job<ProviderRecentSyncJobData>) {
     const account = await this.prisma.providerAccount.findUnique({
       where: { providerAccountId: job.data.providerAccountId },
     });
@@ -37,6 +37,14 @@ export class ProviderRecentSyncProcessor extends WorkerHost {
       return await this.strava.queueRecentImport(
         account,
         new Date(job.timestamp),
+        async (ids) => {
+          await job.updateData({
+            ...job.data,
+            activityJobIds: [
+              ...new Set([...(job.data.activityJobIds ?? []), ...ids]),
+            ],
+          });
+        },
       );
     } catch (error) {
       if (

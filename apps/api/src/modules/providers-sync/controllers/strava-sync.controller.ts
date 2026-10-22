@@ -1,10 +1,13 @@
 import {
   BadRequestException,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Inject,
   NotFoundException,
+  Param,
+  ParseIntPipe,
   Post,
   UseGuards,
   forwardRef,
@@ -18,7 +21,7 @@ import {
 } from '@nestjs/swagger';
 
 import { ConnectorProvider } from '@openathlete/database';
-import { ProviderSyncResponse } from '@openathlete/shared';
+import { ProviderSyncResponse, ProviderSyncStatus } from '@openathlete/shared';
 
 import { JwtUser, UserTypeGuard } from 'src/modules/auth';
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
@@ -65,7 +68,42 @@ export class StravaSyncController {
       throw new NotFoundException('Active Strava connection not found');
     if (!account.importActivitiesEnabled)
       throw new BadRequestException('Strava activity imports are disabled');
-    await this.queue.addRecentStravaSyncJob(account.providerAccountId);
-    return { success: true, queued: true };
+    const syncId = await this.queue.addRecentStravaSyncJob(
+      account.providerAccountId,
+    );
+    return { success: true, queued: true, syncId };
+  }
+
+  @Get('sync/:syncId')
+  @ApiOperation({
+    summary:
+      'Read progress of your Strava catch-up, including activity imports',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Progress and sanitized import counts',
+  })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({
+    status: 404,
+    description: 'Sync or active connection not found',
+  })
+  async status(
+    @JwtUser() user: AuthUser,
+    @Param('syncId', ParseIntPipe) syncId: number,
+  ): Promise<ProviderSyncStatus> {
+    const account = await this.prisma.providerAccount.findFirst({
+      where: {
+        athlete: { userId: user.userId },
+        provider: ConnectorProvider.STRAVA,
+        status: 'active',
+      },
+    });
+    if (!account)
+      throw new NotFoundException('Active Strava connection not found');
+    return this.queue.getRecentStravaSyncStatus(
+      account.providerAccountId,
+      String(syncId),
+    );
   }
 }

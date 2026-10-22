@@ -258,7 +258,7 @@ export function SyncPanel() {
           </p>
         )}
       </div>
-      <StravaSync key={key} provider={strava} />
+      <StravaSync key={key} scope={key} provider={strava} />
       <ZwiftSync />
     </section>
   );

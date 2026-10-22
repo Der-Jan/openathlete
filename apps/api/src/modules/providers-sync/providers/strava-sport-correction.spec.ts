@@ -9,7 +9,11 @@ import {
 import { StravaProviderService } from './strava.provider.service';
 
 describe('Strava full import', () => {
-  const account = { providerAccountId: 1, athleteId: 7 } as ProviderAccount;
+  const account = {
+    providerAccountId: 1,
+    athleteId: 7,
+    provider: ConnectorProvider.STRAVA,
+  } as ProviderAccount;
 
   function setup(existing: object[]) {
     const prisma = {
@@ -53,9 +57,16 @@ describe('Strava full import', () => {
         fetched('s2', SportType.CYCLING),
       ]);
     const endDate = new Date('2026-10-22T12:00:00Z');
-    await expect(service.queueRecentImport(account, endDate)).resolves.toEqual({
+    const record = jest.fn().mockResolvedValue(undefined);
+    await expect(
+      service.queueRecentImport(account, endDate, record),
+    ).resolves.toEqual({
       queuedActivities: 1,
     });
+    expect(record).toHaveBeenCalledWith(['import-7-STRAVA-s2']);
+    expect(record.mock.invocationCallOrder[0]).toBeLessThan(
+      queue.addActivityImportJobs.mock.invocationCallOrder[0],
+    );
     expect(listing).toHaveBeenCalledWith(account, {
       startDate: new Date('2026-09-22T12:00:00Z'),
       endDate,
