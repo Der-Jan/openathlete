@@ -13,6 +13,8 @@ const mock = vi.hoisted(() => ({
   native: true,
   account: 42,
 }));
+vi.mock('@/components/zwift/zwift-sync', () => ({ ZwiftSync: () => null }));
+vi.mock('./strava-sync', () => ({ StravaSync: () => <div>Strava sync</div> }));
 vi.mock('@/api/provider/provider.hooks', () => ({
   useGetConnectedProvidersQuery: () => ({
     data: [
@@ -84,18 +86,17 @@ describe('dedicated sync and import panel', () => {
   it('makes file import visible and does not start reading/uploading just by opening the sync page', async () => {
     await render();
     expect(button('sync_import_file')).toBeDefined();
-    expect(button('sync_now').disabled).toBe(false);
+    expect(button('sync_health_now').disabled).toBe(false);
     expect(mock.sync).not.toHaveBeenCalled();
     expect(container.querySelector('a')?.getAttribute('href')).toBe(
       '/dashboard/settings?tab=connectors',
     );
-    expect(container.textContent).toContain('sync_strava_automatic');
-    expect(container.textContent).toContain('sync_strava_help');
+    expect(container.textContent).toContain('Strava sync');
   });
   it('syncs both approved Health scopes and retains separate results if one fails', async () => {
     mock.sync.mockRejectedValueOnce(new Error('private sample text'));
     await render();
-    await act(async () => button('sync_now').click());
+    await act(async () => button('sync_health_now').click());
     expect(mock.sync.mock.calls.map((call) => call[0].kind)).toEqual([
       'workouts',
       'measurements',
@@ -108,14 +109,14 @@ describe('dedicated sync and import panel', () => {
   it('asks to review permissions rather than sign in when consent was revoked', async () => {
     mock.sync.mockRejectedValueOnce(new Error('HEALTH_IMPORT_NOT_AUTHORIZED'));
     await render();
-    await act(async () => button('sync_now').click());
+    await act(async () => button('sync_health_now').click());
     expect(container.textContent).toContain('sync_health_setup');
     expect(container.textContent).not.toContain('healthkit_upload_login');
   });
   it('does not offer sync without approval, while leaving file import available', async () => {
     mock.overview.mockResolvedValue({ busy: false });
     await render();
-    expect(button('sync_now').disabled).toBe(true);
+    expect(button('sync_health_now').disabled).toBe(true);
     expect(container.textContent).toContain('sync_health_setup');
     expect(button('sync_import_file').disabled).toBe(false);
     expect(mock.sync).not.toHaveBeenCalled();
@@ -129,7 +130,7 @@ describe('dedicated sync and import panel', () => {
         }),
     );
     await render();
-    await act(async () => button('sync_now').click());
+    await act(async () => button('sync_health_now').click());
     const signal = mock.sync.mock.calls[0]![0].signal;
     mock.account = 43;
     await render();

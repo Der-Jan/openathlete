@@ -42,3 +42,35 @@ No personal Health data, login credentials or deployment URLs were used in test 
 - [Observer query completion](https://developer.apple.com/documentation/healthkit/executing-observer-queries): completion follows processing of the delivery.
 - [Background delivery entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.healthkit.background-delivery).
 - [App Review Guidelines, Health and Health Research](https://developer.apple.com/app-store/review/guidelines/#health-and-health-research).
+
+## Startup connection recovery (2026-10-21)
+
+A single unanswered `/user/me` request previously latched the app into the offline screen until a browser `online` event or manual retry. A native web view may remain online throughout that failure. Authentication now retries with bounded backoff while visible and on focus/visibility/online recovery, coalesces simultaneous checks, and ignores stale checks after logout/unmount. Startup/profile and token-refresh requests have explicit timeouts. Refresh transport errors propagate without an unauthenticated follow-up that could erase valid credentials. The UI describes inability to reach the server rather than claiming the phone is offline, in all five locales.
+
+Verification: the full lint/type/unit suite passed; 11 focused regressions passed; 12 production-browser auth/recovery tests passed, including deliberately failed profile and refresh requests with no connectivity transition. Signed iOS build and in-place device installation passed. These reproduce/fix recovery defects, but the original native transport failure is still under device investigation and is not claimed resolved.
+
+## Manual Strava catch-up (2026-10-22)
+
+The dedicated Sync page now has an explicit Strava action, separate from Apple Health. It starts a server-side catch-up and reports queue acceptance, not a completed import. It requires an active connection with activity imports enabled. Repeated taps are disabled for one minute; the queue also coalesces requests per provider account for one minute. Failed POSTs are not automatically repeated. Results from an old account are not shown after switching accounts.
+
+Contract: authenticated `POST /provider/strava/sync` with no body returns HTTP 202 and `{ "success": true, "queued": true }`. The account comes only from the signed-in athlete. Missing connections return 404; disabled imports return 400. Redis failures do not return a false success. Older servers produce a localized explanation in the app.
+
+The new `provider-recent-sync` queue uses the existing activity-import enable flag, three attempts and exponential backoff starting at one minute. A separate queue prevents older history workers from treating a catch-up request as a full historical import during a rolling deployment. The worker rechecks consent and connection state and requests the 30 days preceding the queued request, capped at 1,000 summaries. Strava receives `after`/`before` parameters. Existing source links and provider IDs are filtered, and the normal activity-import reconciliation handles cross-provider matches. One-time full-import state is untouched. No database migration or new credentials are needed.
+
+Server rollout: apply the backend/shared changes together, build the shared library and API, and deploy both API and worker with `ENABLE_ACTIVITY_IMPORT=true` on the worker. If self-hosting runs workers inside the API process, rebuild/restart that service. Do not treat an HTTP 202 as evidence that the worker imported the activity; verify new activities in the calendar or inspect the queue. The existing webhook problem has not been conclusively diagnosed by this catch-up feature.
+
+Validation: final repository generation, translations, lint, types and all unit tests passed after the queue separation. Production browser coverage at iPhone width exercises the Strava POST and acceptance message alongside both Zwift upload paths. Extended verification passed API/web/website builds and agent tests, then stopped because the local Docker daemon was unavailable; PostgreSQL/Redis integration and full Docker E2E coverage remain required. The Strava endpoint was deployed from server commit e953d4a0: the API became healthy, the authenticated route returned HTTP 401 without a token, and one recent-sync worker was connected. The public health and authenticated-route probes also returned HTTP 200/401 respectively. A subsequently observed Date serialization failure is covered by a JSON-roundtrip worker regression test; see the follow-up deployment notes.
+
+## Branch organization
+
+The fork keeps one branch for implemented iPhone work and one branch per future feature:
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Unmodified upstream base, fast-forwarded from `openathleteorg/openathlete` |
+| `feature/healthkit-sync` | All implemented iPhone/HealthKit work, self-hosted login recovery, Zwift uploads and manual Strava catch-up; upstream draft PR #106 |
+| `feat/automatic-ftp-estimation` | FTP estimation discussion only; implementation deferred |
+| `docs/activitypub-integration-proposal` | ActivityPub/FitPub proposal only; implementation not started |
+| `docs/hammerhead-integration-status` | Hammerhead investigation only; deferred |
+
+The intermediate HealthKit API, iOS, integration and proposal branches are superseded by `feature/healthkit-sync`. The custom MCP OAuth branch is retired: the common branch has no MCP differences from upstream, which already contains PR #96. Additional experimental MCP documentation/tests are not part of this iPhone PR. Historical refs and personal build overrides are retained in private local backups, rather than republished as archive branches. Personal signing, instance URLs and credentials remain outside tracked files.

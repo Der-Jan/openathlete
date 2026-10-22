@@ -687,6 +687,7 @@ actor HealthKitLocalService {
 class OpenAthleteBridgeViewController: CAPBridgeViewController {
   override func capacitorDidLoad() {
     bridge?.registerPluginInstance(OpenAthleteHealthKitPlugin())
+    bridge?.registerPluginInstance(OpenAthleteZwiftPlugin())
   }
 }
 

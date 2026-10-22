@@ -126,6 +126,7 @@ export const routes = {
     disconnect: (provider: ConnectorProvider) =>
       `/provider/${provider.toLowerCase()}/disconnect`,
     getConnected: '/provider/connected',
+    syncStrava: '/provider/strava/sync',
     updatePreferences: (provider: ConnectorProvider) =>
       `/provider/${provider.toLowerCase()}/preferences`,
     importAllActivities: (provider: ConnectorProvider) =>

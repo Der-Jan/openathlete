@@ -3,6 +3,7 @@ import { healthImportFailure } from '@/api/metric/health-import-session';
 import { useGetConnectedProvidersQuery } from '@/api/provider/provider.hooks';
 import { ImportFitDialog } from '@/components/import-fit-dialog/import-fit-dialog';
 import { Button } from '@/components/ui/button';
+import { ZwiftSync } from '@/components/zwift/zwift-sync';
 import { useAuthContext } from '@/contexts/auth';
 import { m } from '@/paraglide/messages';
 import { getApiBaseUrl } from '@/utils/capacitor';
@@ -17,6 +18,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+
+import { StravaSync } from './strava-sync';
 
 const kinds: HealthSyncKind[] = ['workouts', 'measurements'];
 const connections = '/dashboard/settings?tab=connectors';
@@ -198,7 +201,7 @@ export function SyncPanel() {
           </Link>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          {(native || strava) && (
+          {native && (
             <Button
               className="min-h-11 flex-1 sm:flex-none"
               disabled={current.busy || current.overview?.busy || !ready.length}
@@ -213,7 +216,7 @@ export function SyncPanel() {
               />
               {current.busy || current.overview?.busy
                 ? m.sync_source_progress()
-                : m.sync_now()}
+                : m.sync_health_now()}
             </Button>
           )}
           <ImportFitDialog triggerLabel={m.sync_import_file()} />
@@ -249,22 +252,14 @@ export function SyncPanel() {
               </span>
             </div>
           ))}
-        {strava && (
-          <p className="text-muted-foreground">
-            <span className="font-medium">
-              {strava.status === 'active' && strava.importActivitiesEnabled
-                ? m.sync_strava_automatic()
-                : m.sync_strava_connection()}
-            </span>{' '}
-            {m.sync_strava_help()}
-          </p>
-        )}
         {current.error && (
           <p role="alert" className="text-destructive">
             {current.error}
           </p>
         )}
       </div>
+      <StravaSync key={key} provider={strava} />
+      <ZwiftSync />
     </section>
   );
 }

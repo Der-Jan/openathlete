@@ -299,7 +299,7 @@ extension HealthKitLocalService {
       for type in types {
         guard version == syncTaskGeneration else { break }
         await withCheckedContinuation { c in
-          health.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in c.resume() }
+          health.enableBackgroundDelivery(for: type, frequency: .hourly) { _, _ in c.resume() }
         }
       }
       if version == syncTaskGeneration { deliveryGeneration = version }
@@ -385,7 +385,8 @@ extension HealthKitLocalService {
       !automating, !reading, manualSyncLease == nil, var config = try? loadSyncConfiguration(),
       config.measurementConsent.automatic || config.workoutConsent.automatic
     else { return }
-    if let retry = config.retryAfter, retry > Date() {
+    if let retry = HealthAutomaticSyncPolicy.nextAttempt(
+      lastAttempt: config.lastAttempt, retryAfter: config.retryAfter), retry > Date() {
       DispatchQueue.main.async { HealthKitWakeObserver.shared.retry(at: retry) }
       return
     }
@@ -393,6 +394,11 @@ extension HealthKitLocalService {
     guard activeBinding == config.binding else { return }
     let binding = config.binding
     let version = syncTaskGeneration
+    // Reserve the budget durably before token refresh, network I/O or Health reads.
+    // Repeated observer/resume/token events and app restarts cannot bypass it.
+    let attemptedAt = Date()
+    config.lastAttempt = attemptedAt
+    do { try saveSyncConfiguration(config) } catch { return }
     automating = true
     defer { automating = false }
     let deadline = Date().addingTimeInterval(20)
@@ -402,7 +408,6 @@ extension HealthKitLocalService {
       await configureDelivery()
       try checkSync(binding, version)
       let token = try await credentials(binding, version: version)
-      config.lastAttempt = Date()
       var featureFailure: Error?
       do {
         if config.measurementConsent.automatic, let selection = config.measurements {
@@ -521,21 +526,23 @@ extension HealthKitLocalService {
       UserDefaults.standard.set(newerData, forKey: "openathlete.healthkit.pendingSync")
       if newerData {
         DispatchQueue.main.async {
-          HealthKitWakeObserver.shared.retry(at: Date().addingTimeInterval(2))
+          HealthKitWakeObserver.shared.retry(at: attemptedAt.addingTimeInterval(HealthAutomaticSyncPolicy.minimumInterval))
         }
       }
     } catch {
       // Leave cursors/receipts intact. Never log credentials, OS errors or samples.
       guard version == syncTaskGeneration else { return }
       if error is CancellationError && !Task.isCancelled {
-        // A bounded history pass made progress. Continue promptly while awake,
-        // without treating a large history as a failing server.
+        // Keep bounded history progress for the next hourly window. Manual Sync
+        // now may continue sooner without consuming another automatic attempt.
         config.retryAfter = Date().addingTimeInterval(2)
       } else {
         config.failures = min(config.failures + 1, 8)
         config.retryAfter = Date().addingTimeInterval(
           min(3600, 30 * pow(2, Double(config.failures - 1))))
       }
+      config.retryAfter = HealthAutomaticSyncPolicy.nextAttempt(
+        lastAttempt: config.lastAttempt, retryAfter: config.retryAfter)
       config.failure = "pending"
       try? saveSyncConfiguration(config)
       if let date = config.retryAfter {

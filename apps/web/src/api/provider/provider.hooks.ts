@@ -15,6 +15,12 @@ import {
 import { ConnectedProvider, ProviderAPI } from './provider.api';
 import { providerKeys } from './provider.keys';
 
+export const useSyncStravaMutation = () =>
+  useMutation({
+    mutationFn: ProviderAPI.syncStrava,
+    retry: false,
+  });
+
 export const useGetOAuthUriMutation = (
   opt?: MutationOptions<
     Awaited<ReturnType<typeof ProviderAPI.getOAuthUri>>,

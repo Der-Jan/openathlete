@@ -24,6 +24,15 @@ struct HealthSyncConfiguration: Codable {
   var metricReceipts: [String: String] = [:]
 }
 
+/// Automatic attempts (including failed requests and history continuation) share
+/// one persisted hourly budget. Manual sync never consults this policy.
+enum HealthAutomaticSyncPolicy {
+  static let minimumInterval: TimeInterval = 3600
+  static func nextAttempt(lastAttempt: Date?, retryAfter: Date?) -> Date? {
+    [lastAttempt?.addingTimeInterval(minimumInterval), retryAfter].compactMap { $0 }.max()
+  }
+}
+
 /// Pure v1 encoding shared by native foreground/background uploads.
 enum HealthWorkoutUpload {
   static func instant(_ date: Date) -> String {

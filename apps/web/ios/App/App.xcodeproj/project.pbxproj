@@ -26,6 +26,8 @@
 		729FED304E814DE296DC5088 /* HealthKitWorkoutReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FE76326131401A8F2DF227 /* HealthKitWorkoutReader.swift */; };
 		38D537067B664DD8B9C0D2B5 /* HealthKitAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7616A389721485CA2BF581E /* HealthKitAutomation.swift */; };
 		831F654203624FD89A46D954 /* HealthKitAutomaticSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35E1F982E0BA474292E9D6F8 /* HealthKitAutomaticSync.swift */; };
+		AAB100000000000000000001 /* ZwiftPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB100000000000000000002 /* ZwiftPlugin.swift */; };
+		AAB100000000000000000003 /* ZwiftClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB100000000000000000004 /* ZwiftClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +55,8 @@
 		04FE76326131401A8F2DF227 /* HealthKitWorkoutReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitWorkoutReader.swift; sourceTree = "<group>"; };
 		A7616A389721485CA2BF581E /* HealthKitAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitAutomation.swift; sourceTree = "<group>"; };
 		35E1F982E0BA474292E9D6F8 /* HealthKitAutomaticSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitAutomaticSync.swift; sourceTree = "<group>"; };
+		AAB100000000000000000002 /* ZwiftPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZwiftPlugin.swift"; sourceTree = "<group>"; };
+		AAB100000000000000000004 /* ZwiftClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../../ZwiftCore/Sources/ZwiftCore/ZwiftClient.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +103,8 @@
 			children = (
 				961EB1572EFAD9AC003D99DD /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
+				AAB100000000000000000002 /* ZwiftPlugin.swift */,
+				AAB100000000000000000004 /* ZwiftClient.swift */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				F58488302F7B4B47A57F1F30 /* HealthKitReader.swift */,
 				04FE76326131401A8F2DF227 /* HealthKitWorkoutReader.swift */,
@@ -264,6 +270,8 @@
 				729FED304E814DE296DC5088 /* HealthKitWorkoutReader.swift in Sources */,
 				303DAE57521B4BA08338C27C /* HealthKitWorkouts.swift in Sources */,
 
+				AAB100000000000000000001 /* ZwiftPlugin.swift in Sources */,
+				AAB100000000000000000003 /* ZwiftClient.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6852FE996820072D4E8 /* SceneDelegate.swift in Sources */,
 			);

@@ -3,6 +3,26 @@ import XCTest
 @testable import HealthKitCore
 
 final class HealthKitAutomationTests: XCTestCase {
+  func testAutomaticAttemptsCannotRunMoreThanOncePerHour() {
+    let now = Date(timeIntervalSince1970: 1_700_000_000)
+    XCTAssertNil(HealthAutomaticSyncPolicy.nextAttempt(lastAttempt: nil, retryAfter: nil))
+    XCTAssertEqual(HealthAutomaticSyncPolicy.nextAttempt(lastAttempt: now, retryAfter: nil), now.addingTimeInterval(3600))
+    // Token failures, history continuations and fresh Health notifications cannot shorten the gap.
+    for seconds: Double in [2, 30, 120, 3599] {
+      XCTAssertEqual(HealthAutomaticSyncPolicy.nextAttempt(lastAttempt: now, retryAfter: now.addingTimeInterval(seconds)), now.addingTimeInterval(3600))
+    }
+    // A longer server backoff still takes precedence.
+    XCTAssertEqual(HealthAutomaticSyncPolicy.nextAttempt(lastAttempt: now, retryAfter: now.addingTimeInterval(7200)), now.addingTimeInterval(7200))
+  }
+
+  func testHourlyBudgetSurvivesAnAppRestart() throws {
+    let binding = try HealthBinding(apiBaseURL: "https://train.example.org/api", accountID: "42")
+    var configuration = HealthSyncConfiguration(binding: binding)
+    configuration.lastAttempt = Date(timeIntervalSince1970: 1_700_000_000)
+    let restored = try JSONDecoder().decode(HealthSyncConfiguration.self, from: JSONEncoder().encode(configuration))
+    XCTAssertEqual(HealthAutomaticSyncPolicy.nextAttempt(lastAttempt: restored.lastAttempt, retryAfter: nil), configuration.lastAttempt!.addingTimeInterval(3600))
+  }
+
   func testAutomaticConsentRequiresBothPermissionsAndRevocationStopsIt() {
     var value = HealthSyncConsent(read: true, upload: true, automatic: true)
     value.normalize()

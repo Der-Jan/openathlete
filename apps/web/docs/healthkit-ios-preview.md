@@ -36,3 +36,7 @@ Imported daily metrics remain subject to existing instance/coach visibility. Wor
 - Enable automatic sync, add a new recording, background/reopen/lock/unlock and confirm eventual delivery. Check that disabling sync and changing server/account prevents further transfer under the old consent.
 - Confirm coach visibility, account export with/without raw streams, and complete account deletion on a disposable account.
 - Do not interpret a simulator build or synthetic test as proof that personal Health uploads or background delivery worked on a device.
+
+## Automatic sync frequency
+
+Automatic Health sync attempts are limited to one per 3,600 seconds for the configured account. The attempt time is persisted before token refresh, network calls or Health reads, so failed attempts, observer events, app activation and process restarts cannot shorten the interval. Longer retry backoff is respected. Large historical imports continue in the next automatic window, or can be continued sooner using manual Sync now. Manual sync does not use the automatic frequency gate. iOS background delivery is requested hourly; this is a maximum frequency, not a guarantee that iOS will run the app every hour.
