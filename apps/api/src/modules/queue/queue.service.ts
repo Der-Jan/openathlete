@@ -9,7 +9,7 @@ import { ImportedActivity } from '../providers-sync/base/provider-import.interfa
 
 export interface ActivityImportJobData {
   providerAccountId: number;
-  activity: ImportedActivity;
+  activity: ImportedActivity<Date | string>;
   bulkImport?: boolean;
 }
 

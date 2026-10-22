@@ -27,11 +27,11 @@ export interface ImportOptions {
   limit?: number;
 }
 
-export interface ImportedActivity {
+export interface ImportedActivity<TDate extends Date | string = Date> {
   externalId: string;
   name: string;
-  startDate: Date;
-  endDate: Date;
+  startDate: TDate;
+  endDate: TDate;
   sport: string;
   distance?: number;
   duration?: number;

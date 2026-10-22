@@ -1,4 +1,4 @@
-import { Job } from 'bullmq';
+import { Job, UnrecoverableError } from 'bullmq';
 
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, Optional, forwardRef } from '@nestjs/common';
@@ -50,9 +50,22 @@ export class ActivityImportProcessor extends WorkerHost {
   }
 
   async process(job: Job<ActivityImportJobData>) {
-    const { providerAccountId, activity, bulkImport } = job.data;
+    const { providerAccountId, bulkImport } = job.data;
+    // BullMQ persists dates as JSON strings. Providers consume real Dates,
+    // regardless of whether a job came from a webhook or a catch-up import.
+    const activity = {
+      ...job.data.activity,
+      startDate: new Date(job.data.activity.startDate),
+      endDate: new Date(job.data.activity.endDate),
+    };
 
     try {
+      if (
+        !Number.isFinite(activity.startDate.getTime()) ||
+        !Number.isFinite(activity.endDate.getTime()) ||
+        activity.endDate < activity.startDate
+      )
+        throw new UnrecoverableError('Invalid activity timestamps');
       await job.updateProgress(10);
 
       const account = await this.prisma.providerAccount.findUnique({
