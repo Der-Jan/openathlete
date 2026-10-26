@@ -1544,7 +1544,7 @@
   "garmin_personal_key_required": "La chiave è scaduta o è stata revocata. Salva una nuova chiave.",
   "garmin_personal_failed": "Sincronizzazione non riuscita",
   "garmin_personal_loading": "Caricamento della connessione…",
-  "garmin_personal_request_failed": "Impossibile completare la richiesta. Verifica la chiave e la connessione e riprova.",
+  "garmin_personal_request_failed": "Impossibile completare questa richiesta di impostazione. Riprova.",
   "garmin_personal_consent": "Consenti l’importazione delle mie attività Garmin",
   "garmin_personal_automatic": "Controlla automaticamente gli ultimi sette giorni ogni ora",
   "garmin_personal_key": "Chiave API personale",
@@ -1557,5 +1557,8 @@
   "garmin_personal_date_invalid": "Scegli un intervallo valido di massimo 28 giorni che termini oggi o prima.",
   "garmin_personal_rate_limited": "Garmin ha limitato le richieste. Attendi prima di riprovare.",
   "garmin_personal_result": "Nuove: {imported}. Esistenti: {existing}. Da verificare: {review}. Non riuscite: {failed}. Elaborazione in attesa: {pending}.",
-  "garmin_personal_truncated": "È stato raggiunto il limite di 1000 attività. Importa un intervallo più breve."
+  "garmin_personal_truncated": "È stato raggiunto il limite di 1000 attività. Importa un intervallo più breve.",
+  "garmin_personal_key_accepted": "Chiave API accettata. La connessione Garmin è salvata.",
+  "garmin_personal_import_request_failed": "Impossibile avviare l’importazione delle attività. La connessione Garmin salvata è stata mantenuta. Riprova.",
+  "garmin_personal_import_failed": "Importazione delle attività non riuscita. La chiave API è stata accettata; questo errore non significa che la chiave non sia valida. Riprova più tardi."
 }

@@ -67,6 +67,8 @@ function PersonalConnection({ userId }: { userId: number }) {
     cache.setQueryData(key, value);
   };
   const failed = () => toast.error(m.garmin_personal_request_failed());
+  const importFailed = () =>
+    toast.error(m.garmin_personal_import_request_failed());
   const connect = useMutation({
     mutationFn: GarminPersonalAPI.connect,
     onSuccess: (value) => {
@@ -96,7 +98,7 @@ function PersonalConnection({ userId }: { userId: number }) {
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: key });
     },
-    onError: failed,
+    onError: importFailed,
   });
   const value = status.data;
   useEffect(() => {
@@ -150,6 +152,9 @@ function PersonalConnection({ userId }: { userId: number }) {
         <p role="alert">{m.garmin_personal_request_failed()}</p>
       ) : (
         <>
+          {value?.connected && value.status !== 'key_required' && (
+            <p>{m.garmin_personal_key_accepted()}</p>
+          )}
           <p role="status">{statusLabel(value?.status ?? 'disconnected')}</p>
           <div className="flex items-center gap-2">
             <Checkbox
@@ -246,7 +251,7 @@ function PersonalConnection({ userId }: { userId: number }) {
                     ? m.garmin_personal_rate_limited()
                     : value.status === 'key_required'
                       ? m.garmin_personal_key_required()
-                      : m.garmin_personal_request_failed()}
+                      : m.garmin_personal_import_failed()}
                 </p>
               )}
               {value.result && (
