@@ -54,6 +54,7 @@ import {
 import { CalendarFeedSection } from './calendar-feed-section';
 import { HealthKitSection } from './healthkit-section';
 import { HealthKitWorkoutsSection } from './healthkit-workouts-section';
+import { GarminPersonalSection } from './garmin-personal-section';
 import { SettingsSection } from './settings-section';
 
 const SUPPORTED_PROVIDERS: ConnectorProvider[] = [
@@ -230,6 +231,7 @@ export function ConnectorsTab() {
 
   return (
     <div className="space-y-6">
+      {instance?.garminPersonalApi && <GarminPersonalSection />}
       <SettingsSection
         title={m.connectors()}
         description={m.connect_activity_tracking_services()}
