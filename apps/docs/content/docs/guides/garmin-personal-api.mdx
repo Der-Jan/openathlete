@@ -51,7 +51,7 @@ must be the only candidate and agree on sport, elapsed duration (within 30 secon
 and positive distance (within 50 metres or 1%). A match preserves the existing
 activity, including edits and training links. It does not replace its streams.
 Ambiguous overlaps are withheld and listed under **Review recordings** in the
-Garmin section of **Sync & import**. Compare the Garmin recording's date, sport,
+**Activity review** section of **Sync & import**. Compare the Garmin recording's date, sport,
 distance and duration with the suggested existing activities, then choose:
 
 - **Link to this activity**: attach the Garmin source to that existing activity.
@@ -61,13 +61,16 @@ distance and duration with the suggested existing activities, then choose:
 - **Ignore recording**: keep the existing calendar untouched and prevent this
   Garmin recording from returning on later syncs.
 
-Older pending items initially show **Load activity details**. This retrieves a
-comparison without importing anything. Loading details and importing separately
-require a connected key and activity-import consent. No choice is made automatically.
+Older pending items load comparison details automatically without importing anything.
+If loading fails, use **Retry details**; running another import is unnecessary.
+Loading older details and importing separately require a connected key and
+activity-import consent. No choice is made automatically.
 Repeated identical decisions are safe after a lost acknowledgement; a different
 decision for an already resolved item is rejected. Decisions and comparison
 summaries are included in account exports. The pending count updates as items are
 resolved; use **Load more** for additional pending recordings.
+See [Activity review](/docs/guides/activity-review) for the shared Strava and Apple
+Health workout queue and iPhone behavior.
 
 **Arrival order matters:** existing business/Strava imports can be recognized by
 this connector, but the upstream business/Strava importers do not consult Personal

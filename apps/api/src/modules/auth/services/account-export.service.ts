@@ -124,6 +124,7 @@ export class AccountExportService {
           createdAt: true,
           updatedAt: true,
           payload: includeStreams,
+          reviewDecision: true,
         },
       });
       if (!source) break;

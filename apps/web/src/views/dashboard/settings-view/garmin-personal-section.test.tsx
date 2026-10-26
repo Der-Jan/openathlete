@@ -23,6 +23,9 @@ const api = vi.hoisted(() => ({
 vi.mock('@/api/garmin-personal/garmin-personal.api', () => ({
   GarminPersonalAPI: api,
 }));
+vi.mock('@/api/activity-review/activity-review.hooks', () => ({
+  useActivityReviewsQuery: () => ({ data: undefined }),
+}));
 vi.mock('@/api/user', () => ({
   useGetMeQuery: () => ({ data: { userId: state.userId } }),
 }));
@@ -185,39 +188,6 @@ describe('Garmin Personal settings', () => {
     expect(element.querySelector('[role=alert]')).toBeNull();
     expect(element.querySelector('[role=status]')?.textContent).toBe(
       'garmin_personal_idle',
-    );
-  });
-  it('clears review-only attention after the final pending recording is ignored', async () => {
-    api.status.mockResolvedValue({
-      ...disconnected,
-      connected: true,
-      preferences: { activities: true, automatic: false },
-      status: 'partial',
-      result: {
-        imported: 0,
-        matched: 0,
-        needsReview: 1,
-        failed: 0,
-        pending: 0,
-        truncated: false,
-      },
-    });
-    api.reviews.mockResolvedValue({
-      total: 1,
-      items: [{ id: 12, externalId: '12345', summary: null, candidates: [] }],
-      nextCursor: null,
-    });
-    api.resolveReview.mockResolvedValue({ resolved: true, pending: false });
-    await render('sync');
-    await render('sync');
-    expect(element.querySelector('[role=status]')?.textContent).toBe(
-      'garmin_personal_partial',
-    );
-    api.reviews.mockResolvedValue({ total: 0, items: [], nextCursor: null });
-    await act(async () => button('garmin_review_ignore').click());
-    await render('sync');
-    expect(element.querySelector('[role=status]')?.textContent).toBe(
-      'garmin_personal_completed',
     );
   });
 });

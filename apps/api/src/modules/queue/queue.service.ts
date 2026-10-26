@@ -114,8 +114,9 @@ export class QueueService {
         if (childState === 'completed') {
           if (child.returnvalue?.status === 'needs_review')
             result.needsReview++;
-          else if (child.returnvalue?.success === true) result.imported++;
-          else unavailable = true;
+          else if (child.returnvalue?.success === true) {
+            if (child.returnvalue?.status !== 'ignored') result.imported++;
+          } else unavailable = true;
         } else if (childState === 'failed') result.failed++;
         else if (childState === 'unknown') unavailable = true;
         else {

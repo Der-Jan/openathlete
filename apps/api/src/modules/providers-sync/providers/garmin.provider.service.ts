@@ -751,6 +751,9 @@ export class GarminProviderService
         receiptId: source.activitySourceId,
         revision: source.revision,
         processingPending: source.processingPending,
+        ...(source.reviewDecision && !source.eventActivityId
+          ? { ignored: true }
+          : {}),
       };
     const recording = await this.fetchGarminActivityData(
       activity.raw as GarminActivitySummary,

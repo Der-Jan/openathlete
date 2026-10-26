@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import {
   ConnectorProvider,
@@ -10,6 +14,9 @@ import {
 import {
   ActivityImportStatus,
   CompressedActivityStream,
+  ResolveActivityReview,
+  activityReviewSummarySchema,
+  resolveActivityReviewSchema,
 } from '@openathlete/shared';
 
 import { PrismaService } from '../../prisma/services/prisma.service';
@@ -141,7 +148,10 @@ export class ActivityReconciliationService {
                 })
               : null,
             created: false,
-            status: source.eventActivityId ? 'unchanged' : 'needs_review',
+            status:
+              source.eventActivityId || source.reviewDecision
+                ? 'unchanged'
+                : 'needs_review',
             receiptId: source.activitySourceId,
             revision: source.revision,
             processingPending: source.processingPending,
@@ -164,10 +174,40 @@ export class ActivityReconciliationService {
           return {
             activity: null,
             created: false,
-            status: 'needs_review',
+            status: source.reviewDecision ? 'unchanged' : 'needs_review',
             receiptId: source.activitySourceId,
             revision: nextRevision,
             processingPending: false,
+          };
+        }
+        // A manual link identifies the recording without authorizing replacement of existing values.
+        if (
+          source &&
+          (source.reviewDecision as { action?: string } | null)?.action ===
+            'link'
+        ) {
+          await tx.activitySource.update({
+            where: { activitySourceId: source.activitySourceId },
+            data: {
+              revision: nextRevision,
+              payloadHash,
+              payload,
+              observations: {
+                create: { revision: nextRevision, payloadHash, payload },
+              },
+            },
+          });
+          return {
+            activity: source.eventActivityId
+              ? await tx.eventActivity.findUnique({
+                  where: { eventActivityId: source.eventActivityId },
+                })
+              : null,
+            created: false,
+            status: 'unchanged',
+            receiptId: source.activitySourceId,
+            revision: nextRevision,
+            processingPending: source.processingPending,
           };
         }
         let target = source?.eventActivityId
@@ -499,6 +539,161 @@ export class ActivityReconciliationService {
     );
   }
 
+  async resolveReview(
+    athleteId: number,
+    id: number,
+    decision: ResolveActivityReview,
+  ): Promise<ReconciledActivity> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(61742, ${athleteId}::integer)`;
+        const source = await tx.activitySource.findFirst({
+          where: { activitySourceId: id, athleteId },
+        });
+        if (!source) throw new NotFoundException();
+        if (source.reviewDecision) {
+          const previous = resolveActivityReviewSchema.safeParse(
+            source.reviewDecision,
+          );
+          if (
+            !previous.success ||
+            previous.data.action !== decision.action ||
+            previous.data.revision !== decision.revision ||
+            (decision.action === 'link' &&
+              previous.data.action === 'link' &&
+              previous.data.eventActivityId !== decision.eventActivityId)
+          )
+            throw new ConflictException('Review already resolved');
+          return {
+            activity: source.eventActivityId
+              ? await tx.eventActivity.findUnique({
+                  where: { eventActivityId: source.eventActivityId },
+                })
+              : null,
+            created: false,
+            status: 'unchanged',
+            receiptId: id,
+            revision: source.revision,
+            processingPending: source.processingPending,
+          };
+        }
+        if (
+          source.revision !== decision.revision ||
+          source.eventActivityId ||
+          !Array.isArray(source.candidates) ||
+          !source.candidates.length
+        )
+          throw new ConflictException(
+            'Review changed; refresh before deciding',
+          );
+        let activity: EventActivity | null = null;
+        let ownership = {};
+        if (decision.action === 'link') {
+          activity = await tx.eventActivity.findFirst({
+            where: {
+              eventActivityId: decision.eventActivityId,
+              event: { athleteId, type: 'ACTIVITY' },
+            },
+          });
+          if (!activity) throw new NotFoundException();
+        } else if (decision.action === 'import') {
+          const recording = source.payload as unknown as ActivityRecording;
+          activityReviewSummarySchema.parse({
+            name: recording.name,
+            sport: recording.values?.sport,
+            distance: recording.values?.distance,
+            startDate: new Date(recording.startDate).toISOString(),
+            endDate: new Date(recording.endDate).toISOString(),
+          });
+          const event = await tx.event.create({
+            data: {
+              athleteId,
+              type: 'ACTIVITY',
+              name: recording.name,
+              startDate: new Date(recording.startDate),
+              endDate: new Date(recording.endDate),
+              activity: {
+                create: {
+                  ...recording.values,
+                  provider: source.provider,
+                  sourceAthleteId: athleteId,
+                  externalId: source.externalId,
+                  stream: json(compressActivityStream(recording.stream)),
+                },
+              },
+            },
+            include: { activity: true },
+          });
+          activity = event.activity!;
+          const fields = Object.fromEntries(
+            Object.entries(recording.values)
+              .filter(([, value]) => value !== undefined && value !== null)
+              .map(([key, value]) => [key, hash(value)]),
+          );
+          const channels = Object.fromEntries(
+            Object.entries(recording.stream)
+              .filter(([key, value]) => key !== 'time' && value?.length)
+              .map(([key, value]) => [key, hash(value)]),
+          );
+          ownership = { fields, channels };
+          if (recording.laps?.length) {
+            const start = Date.parse(recording.startDate),
+              end = Date.parse(recording.endDate);
+            const details = buildFitActivityDetails({
+              stream: recording.stream,
+              segments: recording.laps
+                .filter(
+                  (lap) =>
+                    Date.parse(lap.startDate) >= start &&
+                    Date.parse(lap.endDate) <= end,
+                )
+                .map((lap, orderIndex) => ({
+                  orderIndex,
+                  name: lap.name,
+                  startTimeSeconds: Math.round(
+                    (Date.parse(lap.startDate) - start) / 1000,
+                  ),
+                  endTimeSeconds: Math.round(
+                    (Date.parse(lap.endDate) - start) / 1000,
+                  ),
+                })),
+            });
+            if (details.segments.length)
+              await tx.activitySegment.createMany({
+                data: details.segments.map((segment) => ({
+                  ...segment,
+                  eventActivityId: activity!.eventActivityId,
+                })),
+              });
+          }
+        }
+        await tx.activitySource.update({
+          where: { activitySourceId: id },
+          data: {
+            eventActivityId: activity?.eventActivityId ?? null,
+            reviewDecision: json(decision),
+            candidates: Prisma.DbNull,
+            resolution: json(ownership),
+            processingPending: decision.action === 'import',
+          },
+        });
+        return {
+          activity,
+          created: decision.action === 'import',
+          status:
+            decision.action === 'import'
+              ? 'created'
+              : activity
+                ? 'matched'
+                : 'unchanged',
+          receiptId: id,
+          revision: source.revision,
+          processingPending: decision.action === 'import',
+        };
+      },
+      { timeout: 30000 },
+    );
+  }
   async markDispatched(receiptId: number, revision: number) {
     await this.prisma.activitySource.updateMany({
       where: { activitySourceId: receiptId, revision },

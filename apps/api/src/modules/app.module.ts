@@ -18,6 +18,7 @@ import {
   WorkoutSyncListener,
 } from 'src/listeners';
 
+import { ActivityReviewModule } from './activity-review/activity-review.module';
 import { AgentModule } from './agent/agent.module';
 import { AiModule } from './ai';
 import { AppController } from './app.controller';
@@ -47,6 +48,7 @@ import { SubscriptionModule } from './subscription';
     SentryModule.forRoot(),
     ThrottlerModule.forRoot(DEFAULT_RATE_LIMIT),
     AuthModule,
+    ActivityReviewModule,
     CoreModule,
     InstanceModule,
     AgentModule,

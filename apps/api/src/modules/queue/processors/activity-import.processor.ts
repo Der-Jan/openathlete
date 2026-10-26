@@ -124,7 +124,7 @@ export class ActivityImportProcessor extends WorkerHost {
       if (!savedActivity)
         return {
           success: true,
-          status: 'needs_review',
+          status: result.ignored ? 'ignored' : 'needs_review',
           receiptId: result.receiptId,
         };
       if (result.receiptId && !result.processingPending)

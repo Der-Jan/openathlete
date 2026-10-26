@@ -139,4 +139,18 @@ describe('Strava import progress', () => {
       service.getRecentStravaSyncStatus(7, '12'),
     ).resolves.toMatchObject({ state: 'failed' });
   });
+  it('does not recount an ignored review as a new activity or another review request', async () => {
+    const { service, children } = setup();
+    children.get('b')!.getState.mockResolvedValue('completed');
+    children.get('b')!.returnvalue = {
+      success: true,
+      status: 'ignored',
+    } as never;
+    expect(await service.getRecentStravaSyncStatus(7, '12')).toMatchObject({
+      state: 'completed',
+      imported: 1,
+      needsReview: 0,
+      failed: 0,
+    });
+  });
 });

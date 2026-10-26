@@ -1,7 +1,7 @@
+import { useActivityReviewsQuery } from '@/api/activity-review/activity-review.hooks';
 import { eventKeys } from '@/api/event/event.keys';
 import { GarminPersonalAPI } from '@/api/garmin-personal/garmin-personal.api';
 import { useGetMeQuery } from '@/api/user';
-import { GarminPersonalReviews } from '@/components/dashboard/garmin-personal-reviews';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -65,7 +65,9 @@ function PersonalConnection({
   const cache = useQueryClient();
   const key = ['garmin-personal', userId];
   const [apiKey, setApiKey] = useState('');
-  const [reviewCount, setReviewCount] = useState<number | null>(null);
+  const activityReviews = useActivityReviewsQuery(userId, false);
+  const reviewCount =
+    activityReviews.data?.pages[0]?.counts.GARMIN_PERSONAL ?? null;
   const [startDate, setStartDate] = useState(() =>
     new Date(Date.now() - 27 * 86400000).toISOString().slice(0, 10),
   );
@@ -126,6 +128,8 @@ function PersonalConnection({
       ? 'completed'
       : value?.status;
   useEffect(() => {
+    if (value?.lastSyncedAt)
+      void cache.invalidateQueries({ queryKey: ['activity-reviews'] });
     if (value?.lastSyncedAt && (value.result?.imported ?? 0) > 0) {
       void cache.invalidateQueries({ queryKey: [eventKeys.getMyEvents] });
     }
@@ -318,12 +322,6 @@ function PersonalConnection({
                     : ''}
                 </p>
               )}
-              <GarminPersonalReviews
-                userId={userId}
-                allowImport={selected.activities}
-                lastSyncedAt={value.lastSyncedAt}
-                onCountChange={setReviewCount}
-              />
             </>
           )}
         </>

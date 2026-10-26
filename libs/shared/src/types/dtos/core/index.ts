@@ -35,3 +35,4 @@ export * from './import-health-metrics.dto';
 export * from './import-healthkit-workout.dto';
 export * from './provider-sync.dto';
 export * from './garmin-personal.dto';
+export * from './activity-review.dto';

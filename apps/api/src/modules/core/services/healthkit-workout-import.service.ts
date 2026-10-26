@@ -93,7 +93,11 @@ export class HealthkitWorkoutImportService {
       revision: source.revision,
       eventActivityId: source.eventActivityId,
       eventId: source.eventActivity?.eventId ?? null,
-      status: source.eventActivityId ? 'accepted' : 'needs_review',
+      status: source.eventActivityId
+        ? 'accepted'
+        : source.reviewDecision
+          ? 'ignored'
+          : 'needs_review',
       processing: source.processingPending
         ? 'pending_dispatch'
         : 'dispatched_or_not_required',

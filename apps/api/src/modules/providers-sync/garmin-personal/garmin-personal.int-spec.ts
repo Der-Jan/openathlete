@@ -12,6 +12,8 @@ import { Test } from '@nestjs/testing';
 
 import { ApiEnvSchemaType } from '@openathlete/shared';
 
+import { ActivityReviewController } from '../../activity-review/activity-review.controller';
+import { ActivityReviewService } from '../../activity-review/activity-review.service';
 import {
   COACH_USER_ID,
   DELETED_USER_ID,
@@ -19,6 +21,8 @@ import {
 } from '../../auth/services/account-deletion.fixture';
 import { AccountDeletionService } from '../../auth/services/account-deletion.service';
 import { AccountExportService } from '../../auth/services/account-export.service';
+import { ActivityRecording } from '../../core/helpers/activity-recording';
+import { ActivityReconciliationService } from '../../core/services/activity-reconciliation.service';
 import { PrismaService } from '../../prisma/services/prisma.service';
 import { QueueService } from '../../queue/queue.service';
 import {
@@ -95,6 +99,8 @@ const range = { startDate: '2020-01-01', endDate: '2020-01-28' };
 describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
   let prisma: PrismaService;
   let service: GarminPersonalService;
+  let shared: ActivityReviewService;
+  let reconciliation: ActivityReconciliationService;
   let app: INestApplication;
   let origin: string;
   const jobs = new Map<
@@ -153,9 +159,19 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
       queue as unknown as Queue<PersonalJob>,
       processing as unknown as QueueService,
     );
+    reconciliation = new ActivityReconciliationService(prisma);
+    shared = new ActivityReviewService(
+      prisma,
+      service,
+      reconciliation,
+      processing as unknown as QueueService,
+    );
     const module = await Test.createTestingModule({
-      controllers: [GarminPersonalController],
-      providers: [{ provide: GarminPersonalService, useValue: service }],
+      controllers: [GarminPersonalController, ActivityReviewController],
+      providers: [
+        { provide: GarminPersonalService, useValue: service },
+        { provide: ActivityReviewService, useValue: shared },
+      ],
     })
       .overrideGuard(AuthGuard('jwt'))
       .useValue({
@@ -688,4 +704,291 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
       ).needsReview,
     ).toBe(true);
   });
+  const nativePending = async (
+    provider: 'APPLE_HEALTH' | 'STRAVA' = 'APPLE_HEALTH',
+    externalId = 'native-review',
+  ) => {
+    await prisma.event.update({
+      where: { eventId: 3002 },
+      data: {
+        name: 'Edited canonical activity',
+        startDate: new Date('2020-01-02T09:00:00Z'),
+        endDate: new Date('2020-01-02T10:00:00Z'),
+      },
+    });
+    const recording: ActivityRecording = {
+      name: `${provider} recording`,
+      startDate: '2020-01-02T09:00:00Z',
+      endDate: '2020-01-02T10:00:00Z',
+      values: {
+        sport: 'RUNNING',
+        distance: 20000,
+        movingTime: 3600,
+        elevationGain: 0,
+        averageSpeed: 5,
+        maxSpeed: 6,
+      },
+      stream: { time: [0, 3600], heartrate: [100, 120] },
+      original: provider === 'APPLE_HEALTH',
+      recordingKind: 'single',
+      raw: { privateRaw: 'do-not-send-in-review-list' },
+    };
+    const result = await reconciliation.reconcile(
+      2001,
+      provider,
+      externalId,
+      recording,
+      1,
+    );
+    expect(result.status).toBe('needs_review');
+    return { id: result.receiptId, recording, externalId, provider };
+  };
+  const sharedSend = (
+    path = '',
+    method = 'GET',
+    body?: unknown,
+    userId = DELETED_USER_ID,
+  ) =>
+    fetch(origin + '/activity-import/reviews' + path, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(userId ? { 'x-test-user': String(userId) } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  it('shares Garmin, Strava and Apple Health comparisons without exposing streams or another athlete’s rows', async () => {
+    const personal = await pendingReview();
+    await nativePending('APPLE_HEALTH', 'watch-review');
+    await nativePending('STRAVA', 'strava-review');
+    const page = await (await sharedSend()).json();
+    expect(page.total).toBe(3);
+    expect(page.counts).toMatchObject({
+      GARMIN_PERSONAL: 1,
+      APPLE_HEALTH: 1,
+      STRAVA: 1,
+    });
+    expect(
+      new Set(page.items.map((item: { id: string }) => item.id)).size,
+    ).toBe(3);
+    expect(
+      page.items.find(
+        (item: { provider: string }) => item.provider === 'APPLE_HEALTH',
+      ).summary,
+    ).toMatchObject({ distance: 20000, sport: 'RUNNING' });
+    expect(JSON.stringify(page)).not.toContain('do-not-send-in-review-list');
+    expect(JSON.stringify(page)).not.toContain('heartrate');
+    expect(
+      (await (await sharedSend('', 'GET', undefined, COACH_USER_ID)).json())
+        .total,
+    ).toBe(0);
+    expect((await sharedSend('', 'GET', undefined, 0)).status).toBe(401);
+    expect(
+      (
+        await sharedSend(
+          `/garmin-personal:${personal.id}/prepare`,
+          'POST',
+          {},
+          COACH_USER_ID,
+        )
+      ).status,
+    ).toBe(404);
+  });
+  it('prepares remaining Garmin reviews independently after resolving one, without running another import', async () => {
+    const first = await pendingReview();
+    await prisma.$executeRaw`UPDATE garmin_personal_item SET review_summary=NULL WHERE id=${first.id}`;
+    const second = await prisma.garminPersonalItem.create({
+      data: {
+        connectionId: first.connectionId,
+        externalId: '888888',
+        needsReview: true,
+      },
+    });
+    await shared.prepare(DELETED_USER_ID, `garmin-personal:${first.id}`);
+    await shared.resolve(DELETED_USER_ID, `garmin-personal:${first.id}`, {
+      action: 'ignore',
+      revision: 1,
+    });
+    await shared.prepare(DELETED_USER_ID, `garmin-personal:${second.id}`);
+    const page = await shared.list(DELETED_USER_ID);
+    expect(page.total).toBe(1);
+    expect(page.items[0].summary).not.toBeNull();
+    expect(queue.add).not.toHaveBeenCalled();
+    await service.disconnect(DELETED_USER_ID);
+    const disconnected = await shared.list(DELETED_USER_ID);
+    expect(disconnected.total).toBe(1);
+    expect(disconnected.items[0].summary).not.toBeNull();
+    expect(disconnected.items[0].canImport).toBe(false);
+  });
+  it('links a native source without modifying edits, streams or training links, including later source revisions', async () => {
+    const source = await nativePending();
+    const before = await prisma.eventActivity.findUniqueOrThrow({
+      where: { eventActivityId: 3501 },
+      include: { event: true },
+    });
+    const decision = {
+      action: 'link' as const,
+      eventActivityId: 3501,
+      revision: 1,
+    };
+    await shared.resolve(DELETED_USER_ID, `source:${source.id}`, decision);
+    await shared.resolve(DELETED_USER_ID, `source:${source.id}`, decision);
+    await reconciliation.reconcile(
+      2001,
+      source.provider,
+      source.externalId,
+      { ...source.recording, name: 'New provider title' },
+      2,
+    );
+    expect(
+      await prisma.eventActivity.findUniqueOrThrow({
+        where: { eventActivityId: 3501 },
+        include: { event: true },
+      }),
+    ).toEqual(before);
+    expect(
+      (
+        await prisma.eventTraining.findUniqueOrThrow({
+          where: { eventTrainingId: 3101 },
+        })
+      ).relatedActivityId,
+    ).toBe(3501);
+    expect((await shared.list(DELETED_USER_ID)).total).toBe(0);
+  });
+  it('rejects a stale native review and keeps ignored Apple Health recordings suppressed on newer uploads', async () => {
+    const source = await nativePending();
+    await reconciliation.reconcile(
+      2001,
+      source.provider,
+      source.externalId,
+      { ...source.recording, name: 'Updated recording' },
+      2,
+    );
+    expect(
+      (
+        await sharedSend(`/source:${source.id}/resolve`, 'POST', {
+          action: 'ignore',
+          revision: 1,
+        })
+      ).status,
+    ).toBe(409);
+    await shared.resolve(DELETED_USER_ID, `source:${source.id}`, {
+      action: 'ignore',
+      revision: 2,
+    });
+    const next = await reconciliation.reconcile(
+      2001,
+      source.provider,
+      source.externalId,
+      { ...source.recording, name: 'Newer recording' },
+      3,
+    );
+    expect(next.status).toBe('unchanged');
+    expect(next.activity).toBeNull();
+    expect((await shared.list(DELETED_USER_ID)).total).toBe(0);
+    await shared.resolve(DELETED_USER_ID, `source:${source.id}`, {
+      action: 'ignore',
+      revision: 2,
+    });
+  });
+  it('imports a stored Strava recording exactly once under concurrent decisions and retries failed processing dispatch', async () => {
+    const source = await nativePending('STRAVA');
+    const before = await prisma.eventActivity.count();
+    processing.addActivityProcessingJob.mockRejectedValueOnce(
+      new Error('queue unavailable'),
+    );
+    const decision = { action: 'import' as const, revision: 1 };
+    await Promise.all([
+      shared.resolve(DELETED_USER_ID, `source:${source.id}`, decision),
+      shared.resolve(DELETED_USER_ID, `source:${source.id}`, decision),
+    ]);
+    expect(await prisma.eventActivity.count()).toBe(before + 1);
+    await shared.resolve(DELETED_USER_ID, `source:${source.id}`, decision);
+    expect(
+      (
+        await prisma.activitySource.findUniqueOrThrow({
+          where: { activitySourceId: source.id },
+        })
+      ).processingPending,
+    ).toBe(false);
+    expect(
+      processing.addActivityProcessingJob.mock.calls.every(
+        (call) => call[3] === `source-${source.id}-1`,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await sharedSend(`/source:${source.id}/resolve`, 'POST', {
+          action: 'ignore',
+          revision: 1,
+        })
+      ).status,
+    ).toBe(409);
+  });
+  it('rejects foreign sources and link targets and excludes locally deleted canonical sources from review', async () => {
+    const source = await nativePending();
+    expect(
+      (
+        await sharedSend(
+          `/source:${source.id}/resolve`,
+          'POST',
+          { action: 'ignore', revision: 1 },
+          COACH_USER_ID,
+        )
+      ).status,
+    ).toBe(404);
+    await prisma.event.update({
+      where: { eventId: 3002 },
+      data: { athleteId: 2002 },
+    });
+    expect(
+      (
+        await sharedSend(`/source:${source.id}/resolve`, 'POST', {
+          action: 'link',
+          eventActivityId: 3501,
+          revision: 1,
+        })
+      ).status,
+    ).toBe(404);
+    const recording = {
+      ...source.recording,
+      startDate: '2020-02-02T09:00:00Z',
+      endDate: '2020-02-02T10:00:00Z',
+    };
+    const canonical = await reconciliation.reconcile(
+      2001,
+      'APPLE_HEALTH',
+      'deleted-recording',
+      recording,
+      1,
+    );
+    await prisma.eventActivity.delete({
+      where: { eventActivityId: canonical.activity!.eventActivityId },
+    });
+    expect((await shared.list(DELETED_USER_ID)).total).toBe(1);
+  });
+  it.each([20, 21])(
+    'paginates a mixed queue with %s Garmin rows across the source boundary',
+    async (number) => {
+      const personal = await pendingReview();
+      await prisma.garminPersonalItem.createMany({
+        data: Array.from({ length: number - 1 }, (_, i) => ({
+          connectionId: personal.connectionId,
+          externalId: String(100000 + i),
+          needsReview: true,
+          reviewSummary: personal.reviewSummary!,
+        })),
+      });
+      await nativePending();
+      const first = await shared.list(DELETED_USER_ID);
+      const second = await shared.list(DELETED_USER_ID, first.nextCursor!);
+      expect(first.items).toHaveLength(20);
+      expect(second.items).toHaveLength(number - 19);
+      expect(second.items.at(-1)?.provider).toBe('APPLE_HEALTH');
+      expect(second.nextCursor).toBeNull();
+      expect(
+        new Set([...first.items, ...second.items].map((item) => item.id)).size,
+      ).toBe(number + 1);
+    },
+  );
 });

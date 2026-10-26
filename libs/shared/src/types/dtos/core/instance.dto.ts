@@ -13,6 +13,8 @@ export interface InstanceInfoDto {
   providers: ConnectorProvider[];
   /** Per-user Garmin Personal API key setup; does not require shared OAuth credentials. */
   garminPersonalApi?: boolean;
+  /** Shared activity-review API for uploaded provider recordings. */
+  activityReview?: boolean;
   /**
    * Who can create an account now: SIGNUP_MODE, except that an instance
    * without any account is open, for its administrator

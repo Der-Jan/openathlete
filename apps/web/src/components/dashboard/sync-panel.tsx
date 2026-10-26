@@ -1,4 +1,5 @@
 import { HealthWorkoutUploadError } from '@/api/activity/healthkit-workout-error';
+import { useInstanceInfoQuery } from '@/api/instance';
 import { healthImportFailure } from '@/api/metric/health-import-session';
 import { useGetConnectedProvidersQuery } from '@/api/provider/provider.hooks';
 import { ImportFitDialog } from '@/components/import-fit-dialog/import-fit-dialog';
@@ -19,6 +20,7 @@ import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { ActivityReviews } from './activity-reviews';
 import { GarminPersonalSync } from './garmin-personal-sync';
 import { StravaSync } from './strava-sync';
 
@@ -49,6 +51,7 @@ function failureText(error: unknown) {
 /** Data actions for the athlete's dedicated sync and import page. */
 export function SyncPanel() {
   const { user } = useAuthContext();
+  const { data: instance } = useInstanceInfoQuery();
   const native = hasLocalHealthKit();
   const apiBaseURL = getApiBaseUrl();
   const accountID = user ? String(user.userId) : '';
@@ -259,7 +262,15 @@ export function SyncPanel() {
           </p>
         )}
       </div>
-      <StravaSync key={key} scope={key} provider={strava} />
+      {user && instance?.activityReview && (
+        <ActivityReviews key={key} userId={user.userId} />
+      )}
+      <StravaSync
+        key={key}
+        scope={key}
+        provider={strava}
+        userId={user?.userId}
+      />
       <GarminPersonalSync />
       <ZwiftSync />
     </section>

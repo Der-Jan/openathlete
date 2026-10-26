@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { SPORT_TYPE } from '../../misc';
+import {
+  ActivityReviewSummary,
+  activityReviewSummarySchema,
+} from './activity-review.dto';
 
 const date = z
   .string()
@@ -75,16 +78,8 @@ export interface GarminPersonalStatus {
   result: GarminPersonalResult | null;
 }
 
-export const garminPersonalReviewSummarySchema = z.object({
-  name: z.string().min(1).max(500),
-  sport: z.nativeEnum(SPORT_TYPE),
-  startDate: z.string().datetime(),
-  endDate: z.string().datetime(),
-  distance: z.number().finite().nonnegative(),
-});
-export type GarminPersonalReviewSummary = z.infer<
-  typeof garminPersonalReviewSummarySchema
->;
+export const garminPersonalReviewSummarySchema = activityReviewSummarySchema;
+export type GarminPersonalReviewSummary = ActivityReviewSummary;
 export const garminPersonalReviewQuerySchema = z
   .object({ cursor: z.coerce.number().int().positive().optional() })
   .strict();

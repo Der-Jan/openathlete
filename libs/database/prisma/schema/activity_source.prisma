@@ -14,6 +14,7 @@ model ActivitySource {
   candidates Json?
   processingPending Boolean @default(false) @map("processing_pending")
   /// Last canonical values written by this importer; edits are never overwritten.
+  reviewDecision Json? @map("review_decision")
   resolution Json?
   observations ActivitySourceObservation[]
   createdAt DateTime @default(now()) @map("created_at")

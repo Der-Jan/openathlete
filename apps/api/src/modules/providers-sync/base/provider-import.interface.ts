@@ -47,4 +47,6 @@ export interface ImportResult {
   receiptId?: number;
   revision?: number;
   processingPending?: boolean;
+  /** Explicitly ignored or deleted after a review decision; do not reopen review. */
+  ignored?: boolean;
 }

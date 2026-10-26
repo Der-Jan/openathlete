@@ -1,3 +1,4 @@
+import { useActivityReviewsQuery } from '@/api/activity-review/activity-review.hooks';
 import { eventKeys } from '@/api/event/event.keys';
 import { type ConnectedProvider } from '@/api/provider/provider.api';
 import {
@@ -25,9 +26,11 @@ function restoreSync(key: string): string | undefined {
 export function StravaSync({
   provider,
   scope,
+  userId,
 }: {
   provider?: ConnectedProvider;
   scope: string;
+  userId?: number;
 }) {
   const storageKey = `strava-sync:${scope}`;
   const sync = useSyncStravaMutation();
@@ -60,7 +63,13 @@ export function StravaSync({
     }
   }, [sync.data, storageKey]);
   const result = progress.data;
+  const reviews = useActivityReviewsQuery(userId ?? 0, false);
+  const pendingReviews = reviews.data
+    ? (reviews.data.pages[0]?.counts.STRAVA ?? 0)
+    : (result?.needsReview ?? 0);
   useEffect(() => {
+    if (result && ['completed', 'failed'].includes(result.state))
+      void queryClient.invalidateQueries({ queryKey: ['activity-reviews'] });
     if (
       !result ||
       !['completed', 'failed'].includes(result.state) ||
@@ -131,8 +140,8 @@ export function StravaSync({
             {result.state === 'completed' && !result.total && (
               <p>{m.sync_strava_no_new()}</p>
             )}
-            {result.needsReview > 0 && (
-              <p>{m.sync_strava_review({ count: result.needsReview })}</p>
+            {pendingReviews > 0 && (
+              <p>{m.sync_strava_review({ count: pendingReviews })}</p>
             )}
             {result.state === 'unavailable' && (
               <p>{m.sync_strava_status_unavailable()}</p>

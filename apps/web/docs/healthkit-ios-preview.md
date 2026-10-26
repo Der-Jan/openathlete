@@ -40,3 +40,16 @@ Imported daily metrics remain subject to existing instance/coach visibility. Wor
 ## Automatic sync frequency
 
 Automatic Health sync attempts are limited to one per 3,600 seconds for the configured account. The attempt time is persisted before token refresh, network calls or Health reads, so failed attempts, observer events, app activation and process restarts cannot shorten the interval. Longer retry backoff is respected. Large historical imports continue in the next automatic window, or can be continued sooner using manual Sync now. Manual sync does not use the automatic frequency gate. iOS background delivery is requested hourly; this is a maximum frequency, not a guarantee that iOS will run the app every hour.
+
+
+## Shared server-side activity review
+
+The Sync & import page now includes Activity review for pending Garmin, Strava
+and uploaded Apple Health workouts. Comparisons appear automatically; decisions
+are persisted on the server and shared across web/iPhone. Link preserves canonical
+edits and training links, import separately creates a distinct activity, and ignore
+suppresses future source revisions. The original upload protocol and receipt IDs
+remain unchanged. No extra Health reading/upload consent is requested for reviewing
+data already uploaded. A native rebuild from this branch is needed to include the
+updated bundled interface; keep signing settings and deployment URLs in ignored
+local configuration. See the repository's activity-review guide for API details.

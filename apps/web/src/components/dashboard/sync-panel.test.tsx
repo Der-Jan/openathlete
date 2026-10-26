@@ -13,6 +13,12 @@ const mock = vi.hoisted(() => ({
   native: true,
   account: 42,
 }));
+vi.mock('@/api/instance', () => ({
+  useInstanceInfoQuery: () => ({ data: { activityReview: true } }),
+}));
+vi.mock('./activity-reviews', () => ({
+  ActivityReviews: () => <div>Activity review</div>,
+}));
 vi.mock('@/components/zwift/zwift-sync', () => ({ ZwiftSync: () => null }));
 vi.mock('./garmin-personal-sync', () => ({
   GarminPersonalSync: () => <div>Garmin sync</div>,
@@ -96,6 +102,7 @@ describe('dedicated sync and import panel', () => {
     );
     expect(container.textContent).toContain('Strava sync');
     expect(container.textContent).toContain('Garmin sync');
+    expect(container.textContent).toContain('Activity review');
   });
   it('syncs both approved Health scopes and retains separate results if one fails', async () => {
     mock.sync.mockRejectedValueOnce(new Error('private sample text'));

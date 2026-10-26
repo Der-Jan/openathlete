@@ -347,6 +347,9 @@ export class StravaProviderService
         receiptId: source.activitySourceId,
         revision: source.revision,
         processingPending: source.processingPending,
+        ...(source.reviewDecision && !source.eventActivityId
+          ? { ignored: true }
+          : {}),
       };
     const recording = await this.fetchStravaActivityData(
       account,

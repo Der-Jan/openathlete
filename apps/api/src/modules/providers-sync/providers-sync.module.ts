@@ -65,6 +65,7 @@ import { ProviderExportScheduler } from './scheduler.service';
     PolarProviderService,
   ],
   exports: [
+    GarminPersonalService,
     ProviderExportService,
     StravaProviderService,
     GarminProviderService,
