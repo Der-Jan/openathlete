@@ -1677,5 +1677,22 @@
   "garmin_personal_truncated": "The 1,000-activity limit was reached. Import a smaller date range.",
   "garmin_personal_key_accepted": "API key accepted. Your Garmin connection is saved.",
   "garmin_personal_import_request_failed": "Could not start the activity import. Your saved Garmin connection has been kept. Please try again.",
-  "garmin_personal_import_failed": "Activity import failed. Your API key was accepted; this failure does not mean the key is invalid. Please try again later."
+  "garmin_personal_import_failed": "Activity import failed. Your API key was accepted; this failure does not mean the key is invalid. Please try again later.",
+  "garmin_review_title": "Review recordings",
+  "garmin_review_help": "Compare Garmin with the overlapping activities. Linking preserves existing edits and streams; importing separately creates another activity.",
+  "garmin_review_sport": "Sport",
+  "garmin_review_distance": "Distance",
+  "garmin_review_duration": "Duration",
+  "garmin_review_failed": "Could not complete this review request. Refresh and try again.",
+  "garmin_review_retry": "Retry",
+  "garmin_review_processing": "Activity saved; processing is pending.",
+  "garmin_review_recording": "Garmin recording",
+  "garmin_review_existing": "Existing activity",
+  "garmin_review_link": "Link to this activity",
+  "garmin_review_no_candidates": "No overlapping activity remains. You can import this recording separately or ignore it.",
+  "garmin_review_load": "Load activity details",
+  "garmin_review_import": "Import as a separate activity",
+  "garmin_review_ignore": "Ignore recording",
+  "garmin_review_ignore_hint": "Ignored recordings will not return on future syncs.",
+  "garmin_review_more": "Load more"
 }

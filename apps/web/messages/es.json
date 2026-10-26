@@ -1677,5 +1677,22 @@
   "garmin_personal_truncated": "Se alcanzó el límite de 1000 actividades. Importa un período menor.",
   "garmin_personal_key_accepted": "Clave API aceptada. Tu conexión con Garmin está guardada.",
   "garmin_personal_import_request_failed": "No se pudo iniciar la importación de actividades. Tu conexión guardada con Garmin se ha conservado. Inténtalo de nuevo.",
-  "garmin_personal_import_failed": "La importación de actividades ha fallado. Tu clave API fue aceptada; este fallo no significa que la clave sea inválida. Inténtalo más tarde."
+  "garmin_personal_import_failed": "La importación de actividades ha fallado. Tu clave API fue aceptada; este fallo no significa que la clave sea inválida. Inténtalo más tarde.",
+  "garmin_review_title": "Revisar grabaciones",
+  "garmin_review_help": "Compara Garmin con las actividades coincidentes. Vincular conserva las ediciones y series existentes; importar por separado crea otra actividad.",
+  "garmin_review_sport": "Deporte",
+  "garmin_review_distance": "Distancia",
+  "garmin_review_duration": "Duración",
+  "garmin_review_failed": "No se pudo completar esta solicitud. Actualiza e inténtalo de nuevo.",
+  "garmin_review_retry": "Reintentar",
+  "garmin_review_processing": "Actividad guardada; procesamiento pendiente.",
+  "garmin_review_recording": "Grabación de Garmin",
+  "garmin_review_existing": "Actividad existente",
+  "garmin_review_link": "Vincular a esta actividad",
+  "garmin_review_no_candidates": "Ya no hay una actividad coincidente. Puedes importar esta grabación por separado o ignorarla.",
+  "garmin_review_load": "Cargar detalles de la actividad",
+  "garmin_review_import": "Importar como actividad separada",
+  "garmin_review_ignore": "Ignorar grabación",
+  "garmin_review_ignore_hint": "Las grabaciones ignoradas no volverán en futuras sincronizaciones.",
+  "garmin_review_more": "Cargar más"
 }

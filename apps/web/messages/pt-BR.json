@@ -1677,5 +1677,22 @@
   "garmin_personal_truncated": "O limite de 1000 atividades foi atingido. Importe um período menor.",
   "garmin_personal_key_accepted": "Chave API aceita. Sua conexão com o Garmin está salva.",
   "garmin_personal_import_request_failed": "Não foi possível iniciar a importação de atividades. Sua conexão salva com o Garmin foi mantida. Tente novamente.",
-  "garmin_personal_import_failed": "A importação de atividades falhou. Sua chave API foi aceita; esta falha não significa que a chave seja inválida. Tente novamente mais tarde."
+  "garmin_personal_import_failed": "A importação de atividades falhou. Sua chave API foi aceita; esta falha não significa que a chave seja inválida. Tente novamente mais tarde.",
+  "garmin_review_title": "Revisar registros",
+  "garmin_review_help": "Compare o Garmin com as atividades sobrepostas. Vincular preserva edições e séries existentes; importar separadamente cria outra atividade.",
+  "garmin_review_sport": "Esporte",
+  "garmin_review_distance": "Distância",
+  "garmin_review_duration": "Duração",
+  "garmin_review_failed": "Não foi possível concluir esta solicitação. Atualize e tente novamente.",
+  "garmin_review_retry": "Tentar novamente",
+  "garmin_review_processing": "Atividade salva; processamento pendente.",
+  "garmin_review_recording": "Registro Garmin",
+  "garmin_review_existing": "Atividade existente",
+  "garmin_review_link": "Vincular a esta atividade",
+  "garmin_review_no_candidates": "Não há mais atividade sobreposta. Você pode importar este registro separadamente ou ignorá-lo.",
+  "garmin_review_load": "Carregar detalhes da atividade",
+  "garmin_review_import": "Importar como atividade separada",
+  "garmin_review_ignore": "Ignorar registro",
+  "garmin_review_ignore_hint": "Registros ignorados não voltarão nas próximas sincronizações.",
+  "garmin_review_more": "Carregar mais"
 }

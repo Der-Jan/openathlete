@@ -1,6 +1,7 @@
 import { eventKeys } from '@/api/event/event.keys';
 import { GarminPersonalAPI } from '@/api/garmin-personal/garmin-personal.api';
 import { useGetMeQuery } from '@/api/user';
+import { GarminPersonalReviews } from '@/components/dashboard/garmin-personal-reviews';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -64,6 +65,7 @@ function PersonalConnection({
   const cache = useQueryClient();
   const key = ['garmin-personal', userId];
   const [apiKey, setApiKey] = useState('');
+  const [reviewCount, setReviewCount] = useState<number | null>(null);
   const [startDate, setStartDate] = useState(() =>
     new Date(Date.now() - 27 * 86400000).toISOString().slice(0, 10),
   );
@@ -114,6 +116,15 @@ function PersonalConnection({
     onError: importFailed,
   });
   const value = status.data;
+  const syncStatus =
+    value?.status === 'partial' &&
+    reviewCount === 0 &&
+    value.result &&
+    value.result.failed === 0 &&
+    value.result.pending === 0 &&
+    !value.result.truncated
+      ? 'completed'
+      : value?.status;
   useEffect(() => {
     if (value?.lastSyncedAt && (value.result?.imported ?? 0) > 0) {
       void cache.invalidateQueries({ queryKey: [eventKeys.getMyEvents] });
@@ -164,7 +175,7 @@ function PersonalConnection({
           <p role="status">
             {statusLabel(
               mode === 'sync' || value?.status === 'key_required'
-                ? (value?.status ?? 'disconnected')
+                ? (syncStatus ?? 'disconnected')
                 : value?.connected
                   ? 'idle'
                   : 'disconnected',
@@ -298,7 +309,7 @@ function PersonalConnection({
                   {m.garmin_personal_result({
                     imported: String(value.result.imported),
                     existing: String(value.result.matched),
-                    review: String(value.result.needsReview),
+                    review: String(reviewCount ?? value.result.needsReview),
                     failed: String(value.result.failed),
                     pending: String(value.result.pending),
                   })}
@@ -307,6 +318,12 @@ function PersonalConnection({
                     : ''}
                 </p>
               )}
+              <GarminPersonalReviews
+                userId={userId}
+                allowImport={selected.activities}
+                lastSyncedAt={value.lastSyncedAt}
+                onCountChange={setReviewCount}
+              />
             </>
           )}
         </>

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SPORT_TYPE } from '../../misc';
+
 const date = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -71,4 +73,49 @@ export interface GarminPersonalStatus {
   error: string | null;
   lastSyncedAt: string | null;
   result: GarminPersonalResult | null;
+}
+
+export const garminPersonalReviewSummarySchema = z.object({
+  name: z.string().min(1).max(500),
+  sport: z.nativeEnum(SPORT_TYPE),
+  startDate: z.string().datetime(),
+  endDate: z.string().datetime(),
+  distance: z.number().finite().nonnegative(),
+});
+export type GarminPersonalReviewSummary = z.infer<
+  typeof garminPersonalReviewSummarySchema
+>;
+export const garminPersonalReviewQuerySchema = z
+  .object({ cursor: z.coerce.number().int().positive().optional() })
+  .strict();
+export const resolveGarminPersonalReviewSchema = z.discriminatedUnion(
+  'action',
+  [
+    z
+      .object({
+        action: z.literal('link'),
+        eventActivityId: z.number().int().positive(),
+      })
+      .strict(),
+    z.object({ action: z.literal('import') }).strict(),
+    z.object({ action: z.literal('ignore') }).strict(),
+  ],
+);
+export type ResolveGarminPersonalReview = z.infer<
+  typeof resolveGarminPersonalReviewSchema
+>;
+export interface GarminPersonalReviewItem {
+  id: number;
+  externalId: string;
+  summary: GarminPersonalReviewSummary | null;
+  candidates: (GarminPersonalReviewSummary & {
+    eventActivityId: number;
+    eventId: number;
+    provider: string | null;
+  })[];
+}
+export interface GarminPersonalReviewPage {
+  total: number;
+  items: GarminPersonalReviewItem[];
+  nextCursor: number | null;
 }

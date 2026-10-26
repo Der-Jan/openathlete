@@ -173,6 +173,16 @@ export class AccountExportService {
         records: true,
         garminPersonalConnection: {
           select: {
+            items: {
+              select: {
+                externalId: true,
+                eventActivityId: true,
+                needsReview: true,
+                reviewSummary: true,
+                reviewDecision: true,
+                createdAt: true,
+              },
+            },
             activities: true,
             automatic: true,
             status: true,

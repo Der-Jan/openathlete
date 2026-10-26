@@ -50,8 +50,24 @@ matched. Otherwise, an existing activity within 30 seconds of the FIT start time
 must be the only candidate and agree on sport, elapsed duration (within 30 seconds)
 and positive distance (within 50 metres or 1%). A match preserves the existing
 activity, including edits and training links. It does not replace its streams.
-Ambiguous overlaps are withheld and counted as needing review. This version has
-no review-resolution screen; the original recording remains untouched.
+Ambiguous overlaps are withheld and listed under **Review recordings** in the
+Garmin section of **Sync & import**. Compare the Garmin recording's date, sport,
+distance and duration with the suggested existing activities, then choose:
+
+- **Link to this activity**: attach the Garmin source to that existing activity.
+  Its edits, streams and training links remain unchanged.
+- **Import as a separate activity**: create another activity from the Garmin FIT.
+  Choose this only when the recording represents a different activity.
+- **Ignore recording**: keep the existing calendar untouched and prevent this
+  Garmin recording from returning on later syncs.
+
+Older pending items initially show **Load activity details**. This retrieves a
+comparison without importing anything. Loading details and importing separately
+require a connected key and activity-import consent. No choice is made automatically.
+Repeated identical decisions are safe after a lost acknowledgement; a different
+decision for an already resolved item is rejected. Decisions and comparison
+summaries are included in account exports. The pending count updates as items are
+resolved; use **Load more** for additional pending recordings.
 
 **Arrival order matters:** existing business/Strava imports can be recognized by
 this connector, but the upstream business/Strava importers do not consult Personal
@@ -78,7 +94,8 @@ credentials unreadable, requiring users to reconnect.
 
 Apply the normal database migrations and deploy API and web from the same release.
 The migration adds `garmin_personal_connection` and `garmin_personal_item`; existing
-provider accounts and activities are not rewritten. Redis and an API worker with
+provider accounts and activities are not rewritten. The review migration adds two
+nullable JSON columns for comparison summaries and decisions. Redis and an API worker with
 `ENABLE_ACTIVITY_IMPORT=true` are required for pulls; activity analysis requires
 `ENABLE_ACTIVITY_PROCESSING=true`. These workers may run in the API container or a
 separate worker container, as described in the [self-hosting guide](/docs/getting-started/self-hosting).
@@ -94,6 +111,9 @@ endpoints require the current user's JWT; callers cannot supply another athlete 
 | POST | `/provider/garmin-personal` | `{ apiKey, activities, automatic }` |
 | PATCH | `/provider/garmin-personal` | `{ activities, automatic }` |
 | DELETE | `/provider/garmin-personal` | None; disconnect |
+| GET | `/provider/garmin-personal/reviews` | Optional numeric `cursor`; owned pending comparisons |
+| POST | `/provider/garmin-personal/reviews/:id/preview` | None; load comparison for an older item |
+| POST | `/provider/garmin-personal/reviews/:id/resolve` | `{ action: "link", eventActivityId }`, `{ action: "import" }` or `{ action: "ignore" }` |
 | POST | `/provider/garmin-personal/sync` | `{ startDate, endDate }`; HTTP 202 `{ queued }` |
 
 Dates use `YYYY-MM-DD`; unknown fields are rejected. The shared DTOs define the

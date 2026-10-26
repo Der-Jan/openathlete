@@ -9,6 +9,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  NotFoundException,
   forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -19,9 +20,14 @@ import {
   ConnectGarminPersonal,
   GarminPersonalPreferences,
   GarminPersonalResult,
+  GarminPersonalReviewPage,
+  GarminPersonalReviewSummary,
   GarminPersonalStatus,
   GarminPersonalSync,
   MAX_ACTIVITY_FILE_BYTES,
+  ResolveGarminPersonalReview,
+  garminPersonalReviewSummarySchema,
+  resolveGarminPersonalReviewSchema,
 } from '@openathlete/shared';
 
 import { prepareManualFit } from '../../core/helpers/manual-fit-import';
@@ -306,26 +312,13 @@ export class GarminPersonalService {
       const needsReview = !activity && near.length > 0;
       let created = false;
       if (!activity && !needsReview) {
-        const event = await tx.event.create({
-          data: {
-            athleteId: c.athleteId,
-            type: 'ACTIVITY',
-            name,
-            startDate: fit.startDate,
-            endDate: fit.endDate,
-            activity: {
-              create: {
-                ...fit.activity,
-                provider: 'GARMIN',
-                externalId: `garmin-personal:${c.athleteId}:${externalId}`,
-                stream: json(fit.details.stream),
-                segments: { create: fit.details.segments },
-              },
-            },
-          },
-          include: { activity: true },
-        });
-        activity = event.activity;
+        activity = await this.createImportedActivity(
+          tx,
+          c,
+          externalId,
+          name,
+          fit,
+        );
         created = true;
       }
       const item = await tx.garminPersonalItem.create({
@@ -334,10 +327,320 @@ export class GarminPersonalService {
           eventActivityId: activity?.eventActivityId,
           processingPending: created,
           needsReview,
+          reviewSummary: needsReview
+            ? json(this.reviewSummary(name, fit))
+            : Prisma.DbNull,
         },
       });
       return { item, created };
     });
+  }
+  private reviewSummary(
+    name: string,
+    fit: ReturnType<typeof prepareManualFit>,
+  ): GarminPersonalReviewSummary {
+    return {
+      name: name.trim() || 'Garmin',
+      sport: fit.activity.sport,
+      startDate: fit.startDate.toISOString(),
+      endDate: fit.endDate.toISOString(),
+      distance: fit.activity.distance,
+    };
+  }
+  private async createImportedActivity(
+    tx: Prisma.TransactionClient,
+    c: GarminPersonalConnection,
+    externalId: string,
+    name: string,
+    fit: ReturnType<typeof prepareManualFit>,
+  ) {
+    const event = await tx.event.create({
+      data: {
+        athleteId: c.athleteId,
+        type: 'ACTIVITY',
+        name,
+        startDate: fit.startDate,
+        endDate: fit.endDate,
+        activity: {
+          create: {
+            ...fit.activity,
+            provider: 'GARMIN',
+            externalId: `garmin-personal:${c.athleteId}:${externalId}`,
+            stream: json(fit.details.stream),
+            segments: { create: fit.details.segments },
+          },
+        },
+      },
+      include: { activity: true },
+    });
+    return event.activity!;
+  }
+  async reviews(
+    userId: number,
+    cursor?: number,
+  ): Promise<GarminPersonalReviewPage> {
+    const athleteId = await this.athlete(userId);
+    const where = { connection: { athleteId }, needsReview: true };
+    const [total, rows] = await Promise.all([
+      this.prisma.garminPersonalItem.count({ where }),
+      this.prisma.garminPersonalItem.findMany({
+        where: { ...where, ...(cursor ? { id: { gt: cursor } } : {}) },
+        orderBy: { id: 'asc' },
+        take: 21,
+      }),
+    ]);
+    const items = await Promise.all(
+      rows.slice(0, 20).map(async (row) => {
+        const parsed = garminPersonalReviewSummarySchema.safeParse(
+          row.reviewSummary,
+        );
+        const summary = parsed.success ? parsed.data : null;
+        const candidates = summary
+          ? await this.prisma.event.findMany({
+              where: {
+                athleteId,
+                type: 'ACTIVITY',
+                startDate: {
+                  gte: new Date(Date.parse(summary.startDate) - 30000),
+                  lte: new Date(Date.parse(summary.startDate) + 30000),
+                },
+              },
+              orderBy: { eventId: 'asc' },
+              take: 20,
+              select: {
+                eventId: true,
+                name: true,
+                startDate: true,
+                endDate: true,
+                activity: {
+                  select: {
+                    eventActivityId: true,
+                    provider: true,
+                    sport: true,
+                    distance: true,
+                  },
+                },
+              },
+            })
+          : [];
+        return {
+          id: row.id,
+          externalId: row.externalId,
+          summary,
+          candidates: candidates.flatMap((event) =>
+            event.activity
+              ? [
+                  {
+                    eventId: event.eventId,
+                    name: event.name,
+                    startDate: event.startDate.toISOString(),
+                    endDate: event.endDate.toISOString(),
+                    ...event.activity,
+                    sport: garminPersonalReviewSummarySchema.shape.sport.parse(
+                      event.activity.sport,
+                    ),
+                  },
+                ]
+              : [],
+          ),
+        };
+      }),
+    );
+    return { total, items, nextCursor: rows.length > 20 ? rows[19].id : null };
+  }
+  private async ownedReview(userId: number, id: number) {
+    const athleteId = await this.athlete(userId);
+    const item = await this.prisma.garminPersonalItem.findFirst({
+      where: { id, connection: { athleteId } },
+      include: { connection: true },
+    });
+    if (!item) throw new NotFoundException();
+    return item;
+  }
+  private async reviewFit(c: GarminPersonalConnection, externalId: string) {
+    if (!c.encryptedCredentials || !c.activities)
+      throw new BadRequestException('imports_disabled');
+    try {
+      let credentials = JSON.parse(
+        this.cipher.decrypt(c.athleteId, c.encryptedCredentials),
+      ) as PersonalCredentials;
+      const renew = async () => {
+        credentials = await this.client.authorize(credentials.apiKey);
+        const updated = await this.prisma.garminPersonalConnection.updateMany({
+          where: {
+            id: c.id,
+            version: c.version,
+            encryptedCredentials: { not: null },
+            activities: true,
+          },
+          data: {
+            encryptedCredentials: this.cipher.encrypt(
+              c.athleteId,
+              JSON.stringify(credentials),
+            ),
+          },
+        });
+        if (!updated.count) throw new GarminPersonalError('key_required');
+      };
+      if (credentials.expiresAt <= Date.now() + 3600000) await renew();
+      let bytes: Buffer;
+      try {
+        bytes = await this.client.download(credentials, externalId);
+      } catch (error) {
+        if (
+          !(error instanceof GarminPersonalError) ||
+          error.code !== 'key_required'
+        )
+          throw error;
+        await renew();
+        bytes = await this.client.download(credentials, externalId);
+      }
+      return prepareManualFit(
+        await new FitParserStrategy().parse(
+          Uint8Array.from(extractPersonalFit(bytes)).buffer,
+        ),
+      );
+    } catch (error) {
+      if (
+        error instanceof GarminPersonalError &&
+        error.code === 'key_required'
+      ) {
+        await this.prisma.garminPersonalConnection.updateMany({
+          where: {
+            id: c.id,
+            version: c.version,
+            encryptedCredentials: { not: null },
+          },
+          data: { status: 'key_required', error: 'key_required' },
+        });
+      }
+      throw new BadRequestException(
+        error instanceof GarminPersonalError ? error.code : 'invalid_response',
+      );
+    }
+  }
+  private async currentReview(
+    tx: Prisma.TransactionClient,
+    c: GarminPersonalConnection,
+  ) {
+    try {
+      await this.current(tx, c, 'activities');
+    } catch (error) {
+      if (error instanceof GarminPersonalError)
+        throw new ConflictException(
+          'Connection changed; refresh before reviewing',
+        );
+      throw error;
+    }
+  }
+  async previewReview(userId: number, id: number) {
+    const item = await this.ownedReview(userId, id);
+    if (!item.needsReview)
+      throw new ConflictException('Review already resolved');
+    if (garminPersonalReviewSummarySchema.safeParse(item.reviewSummary).success)
+      return { loaded: true };
+    const fit = await this.reviewFit(item.connection, item.externalId);
+    await this.prisma.$transaction(async (tx) => {
+      await this.currentReview(tx, item.connection);
+      await tx.garminPersonalItem.updateMany({
+        where: { id, needsReview: true },
+        data: {
+          reviewSummary: json(
+            this.reviewSummary(`Garmin ${item.externalId}`, fit),
+          ),
+        },
+      });
+    });
+    return { loaded: true };
+  }
+  async resolveReview(
+    userId: number,
+    id: number,
+    decision: ResolveGarminPersonalReview,
+  ) {
+    const item = await this.ownedReview(userId, id);
+    // Fetch outside the transaction. Recheck ownership, consent and version under the same import lock before writing.
+    const fit =
+      item.needsReview && decision.action === 'import'
+        ? await this.reviewFit(item.connection, item.externalId)
+        : null;
+    const saved = await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, item.connection.athleteId);
+      const current = await tx.garminPersonalItem.findUniqueOrThrow({
+        where: { id },
+      });
+      if (!current.needsReview) {
+        const previous = resolveGarminPersonalReviewSchema.safeParse(
+          current.reviewDecision,
+        );
+        if (
+          !previous.success ||
+          previous.data.action !== decision.action ||
+          (decision.action === 'link' &&
+            previous.data.action === 'link' &&
+            previous.data.eventActivityId !== decision.eventActivityId)
+        )
+          throw new ConflictException('Review already resolved');
+        return current;
+      }
+      let eventActivityId: number | null = null;
+      if (decision.action === 'link') {
+        const target = await tx.eventActivity.findFirst({
+          where: {
+            eventActivityId: decision.eventActivityId,
+            event: { athleteId: item.connection.athleteId },
+          },
+          select: { eventActivityId: true },
+        });
+        if (!target) throw new NotFoundException();
+        eventActivityId = target.eventActivityId;
+      } else if (decision.action === 'import') {
+        await this.currentReview(tx, item.connection);
+        const summary = garminPersonalReviewSummarySchema.safeParse(
+          current.reviewSummary,
+        );
+        eventActivityId = (
+          await this.createImportedActivity(
+            tx,
+            item.connection,
+            item.externalId,
+            summary.success ? summary.data.name : `Garmin ${item.externalId}`,
+            fit!,
+          )
+        ).eventActivityId;
+      }
+      // Linking changes only the receipt, preserving all edits, streams and training links on the existing activity.
+      return tx.garminPersonalItem.update({
+        where: { id },
+        data: {
+          eventActivityId,
+          needsReview: false,
+          reviewDecision: json(decision),
+          processingPending: decision.action === 'import',
+        },
+      });
+    });
+    let pending = saved.processingPending;
+    if (pending && saved.eventActivityId) {
+      try {
+        const activity = await this.prisma.eventActivity.findUniqueOrThrow({
+          where: { eventActivityId: saved.eventActivityId },
+        });
+        await this.processing.addActivityProcessingJob(
+          activity.eventActivityId,
+          activity.eventId,
+          true,
+        );
+        await this.prisma.garminPersonalItem.update({
+          where: { id },
+          data: { processingPending: false },
+        });
+        pending = false;
+      } catch {
+        /* A retry resumes processing without creating another activity. */
+      }
+    }
+    return { resolved: true, pending };
   }
   async run(job: PersonalJob) {
     const c = await this.prisma.garminPersonalConnection.findUnique({

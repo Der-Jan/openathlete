@@ -6,8 +6,11 @@ import {
   Delete,
   Get,
   HttpCode,
+  Param,
+  ParseIntPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -18,9 +21,12 @@ import {
   ConnectGarminPersonal,
   GarminPersonalPreferences,
   GarminPersonalSync,
+  ResolveGarminPersonalReview,
   connectGarminPersonalSchema,
   garminPersonalPreferencesSchema,
+  garminPersonalReviewQuerySchema,
   garminPersonalSyncSchema,
+  resolveGarminPersonalReviewSchema,
 } from '@openathlete/shared';
 
 import { RATE_LIMITS } from '../../../common/security/rate-limits';
@@ -85,5 +91,38 @@ export class GarminPersonalController {
     body: GarminPersonalSync,
   ) {
     return this.service.enqueue(user.userId, body);
+  }
+  @Get('reviews')
+  @ApiOperation({
+    summary: 'List your Garmin recordings awaiting a match decision',
+  })
+  reviews(
+    @JwtUser() user: AuthUser,
+    @Query(new ZodValidationPipe(garminPersonalReviewQuerySchema))
+    query: { cursor?: number },
+  ) {
+    return this.service.reviews(user.userId, query.cursor);
+  }
+  @Post('reviews/:id/preview')
+  @HttpCode(200)
+  @Throttle(RATE_LIMITS.login)
+  @ApiOperation({
+    summary: 'Load comparison details for an older pending Garmin recording',
+  })
+  preview(@JwtUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.service.previewReview(user.userId, id);
+  }
+  @Post('reviews/:id/resolve')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Link, separately import, or ignore your pending Garmin recording',
+  })
+  resolve(
+    @JwtUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(resolveGarminPersonalReviewSchema))
+    body: ResolveGarminPersonalReview,
+  ) {
+    return this.service.resolveReview(user.userId, id, body);
   }
 }

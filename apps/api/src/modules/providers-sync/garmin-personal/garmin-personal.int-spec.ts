@@ -419,4 +419,273 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
     });
     expect((await send('/sync', 'POST', range)).status).toBe(400);
   });
+  const pendingReview = async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    await prisma.event.update({
+      where: { eventId: 3002 },
+      data: {
+        name: 'Edited existing activity',
+        startDate: new Date('2020-01-02T09:00:00Z'),
+        endDate: new Date('2020-01-02T10:00:00Z'),
+      },
+    });
+    await run();
+    return prisma.garminPersonalItem.findFirstOrThrow({
+      where: { needsReview: true },
+    });
+  };
+  it('lists owned pending comparisons without credentials and hides them from other users', async () => {
+    const item = await pendingReview();
+    const page = await (await send('/reviews')).json();
+    expect(page.total).toBe(1);
+    expect(page.items[0]).toMatchObject({
+      id: item.id,
+      summary: { sport: 'CYCLING', distance: 6 },
+      candidates: [
+        {
+          eventActivityId: 3501,
+          name: 'Edited existing activity',
+          sport: 'RUNNING',
+        },
+      ],
+    });
+    expect(JSON.stringify(page)).not.toContain(dto.apiKey);
+    expect(JSON.stringify(page)).not.toContain('encryptedCredentials');
+    expect(
+      (await (await send('/reviews', 'GET', undefined, COACH_USER_ID)).json())
+        .total,
+    ).toBe(0);
+    expect(
+      (
+        await send(
+          `/reviews/${item.id}/resolve`,
+          'POST',
+          { action: 'ignore' },
+          COACH_USER_ID,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await send(`/reviews/${item.id}/preview`, 'POST', {}, COACH_USER_ID))
+        .status,
+    ).toBe(404);
+    expect((await send('/reviews?cursor=-1')).status).toBe(400);
+  });
+  it('links explicitly without modifying edits, streams or training links and accepts a lost-ack retry', async () => {
+    const item = await pendingReview();
+    const before = await prisma.eventActivity.findUniqueOrThrow({
+      where: { eventActivityId: 3501 },
+      include: { event: true },
+    });
+    const decision = { action: 'link', eventActivityId: 3501 };
+    expect(
+      (await send(`/reviews/${item.id}/resolve`, 'POST', decision)).status,
+    ).toBe(200);
+    expect(
+      (await send(`/reviews/${item.id}/resolve`, 'POST', decision)).status,
+    ).toBe(200);
+    expect(
+      (await send(`/reviews/${item.id}/resolve`, 'POST', { action: 'ignore' }))
+        .status,
+    ).toBe(409);
+    expect(
+      await prisma.eventActivity.findUniqueOrThrow({
+        where: { eventActivityId: 3501 },
+        include: { event: true },
+      }),
+    ).toEqual(before);
+    expect(
+      (
+        await prisma.eventTraining.findUniqueOrThrow({
+          where: { eventTrainingId: 3101 },
+        })
+      ).relatedActivityId,
+    ).toBe(3501);
+    expect((await service.reviews(DELETED_USER_ID)).total).toBe(0);
+    expect(await run()).toMatchObject({ matched: 1, needsReview: 0 });
+  });
+  it('refuses linking to an activity now owned by another athlete', async () => {
+    const item = await pendingReview();
+    await prisma.event.update({
+      where: { eventId: 3002 },
+      data: { athleteId: 2002 },
+    });
+    expect(
+      (
+        await send(`/reviews/${item.id}/resolve`, 'POST', {
+          action: 'link',
+          eventActivityId: 3501,
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await prisma.garminPersonalItem.findUniqueOrThrow({
+          where: { id: item.id },
+        })
+      ).needsReview,
+    ).toBe(true);
+  });
+  it('imports separately once and retries scheduling after a lost processing acknowledgement', async () => {
+    const item = await pendingReview();
+    const before = await prisma.eventActivity.count();
+    processing.addActivityProcessingJob.mockRejectedValueOnce(
+      new Error('Lost acknowledgement'),
+    );
+    expect(
+      await service.resolveReview(DELETED_USER_ID, item.id, {
+        action: 'import',
+      }),
+    ).toEqual({ resolved: true, pending: true });
+    expect(
+      await service.resolveReview(DELETED_USER_ID, item.id, {
+        action: 'import',
+      }),
+    ).toEqual({ resolved: true, pending: false });
+    expect(await prisma.eventActivity.count()).toBe(before + 1);
+    expect(
+      (
+        await prisma.eventTraining.findUniqueOrThrow({
+          where: { eventTrainingId: 3101 },
+        })
+      ).relatedActivityId,
+    ).toBe(3501);
+    expect((await service.reviews(DELETED_USER_ID)).total).toBe(0);
+    expect(await run()).toMatchObject({
+      imported: 0,
+      matched: 1,
+      needsReview: 0,
+    });
+  });
+  it('serializes concurrent separate-import choices and keeps ignored recordings excluded', async () => {
+    const item = await pendingReview();
+    const before = await prisma.eventActivity.count();
+    await Promise.all([
+      service.resolveReview(DELETED_USER_ID, item.id, { action: 'import' }),
+      service.resolveReview(DELETED_USER_ID, item.id, { action: 'import' }),
+    ]);
+    expect(await prisma.eventActivity.count()).toBe(before + 1);
+    const c = await connection();
+    client.activities.mockResolvedValue([{ activityId: '999999' }]);
+    await run();
+    const ignored = await prisma.garminPersonalItem.findUniqueOrThrow({
+      where: {
+        connectionId_externalId: { connectionId: c.id, externalId: '999999' },
+      },
+    });
+    expect(ignored.needsReview).toBe(true);
+    await service.resolveReview(DELETED_USER_ID, ignored.id, {
+      action: 'ignore',
+    });
+    await service.resolveReview(DELETED_USER_ID, ignored.id, {
+      action: 'ignore',
+    });
+    expect(await run()).toMatchObject({
+      imported: 0,
+      matched: 1,
+      needsReview: 0,
+    });
+    expect(await prisma.eventActivity.count()).toBe(before + 1);
+  });
+  it('loads old review details without importing and respects consent revoked during a download', async () => {
+    const item = await pendingReview();
+    await prisma.$executeRaw`UPDATE garmin_personal_item SET review_summary = NULL WHERE id = ${item.id}`;
+    const before = await prisma.eventActivity.count();
+    expect(
+      (await service.reviews(DELETED_USER_ID)).items[0].summary,
+    ).toBeNull();
+    await service.previewReview(DELETED_USER_ID, item.id);
+    expect(
+      (await service.reviews(DELETED_USER_ID)).items[0].summary?.sport,
+    ).toBe('CYCLING');
+    expect(await prisma.eventActivity.count()).toBe(before);
+    let release!: (value: Buffer) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    client.download.mockImplementationOnce(
+      () =>
+        new Promise<Buffer>((resolve) => {
+          release = resolve;
+          started();
+        }),
+    );
+    const resolving = service.resolveReview(DELETED_USER_ID, item.id, {
+      action: 'import',
+    });
+    const outcome = resolving.catch((error) => error);
+    await ready;
+    await service.preferences(DELETED_USER_ID, {
+      activities: false,
+      automatic: false,
+    });
+    release(activityZip());
+    expect(await outcome).toMatchObject({ status: 409 });
+    expect(await prisma.eventActivity.count()).toBe(before);
+    expect(
+      (
+        await prisma.garminPersonalItem.findUniqueOrThrow({
+          where: { id: item.id },
+        })
+      ).needsReview,
+    ).toBe(true);
+  });
+  it('paginates pending reviews within the current account', async () => {
+    const item = await pendingReview();
+    await prisma.garminPersonalItem.createMany({
+      data: Array.from({ length: 21 }, (_, i) => ({
+        connectionId: item.connectionId,
+        externalId: String(100000 + i),
+        needsReview: true,
+        reviewSummary: item.reviewSummary!,
+      })),
+    });
+    const first = await service.reviews(DELETED_USER_ID);
+    const second = await service.reviews(DELETED_USER_ID, first.nextCursor!);
+    expect(first.total).toBe(22);
+    expect(first.items).toHaveLength(20);
+    expect(second.items).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+  });
+  it('allows exactly one of two concurrent conflicting review choices', async () => {
+    const item = await pendingReview();
+    const results = await Promise.allSettled([
+      service.resolveReview(DELETED_USER_ID, item.id, {
+        action: 'link',
+        eventActivityId: 3501,
+      }),
+      service.resolveReview(DELETED_USER_ID, item.id, { action: 'ignore' }),
+    ]);
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1);
+    const rejected = results.find(
+      (result) => result.status === 'rejected',
+    ) as PromiseRejectedResult;
+    expect(rejected.reason.status).toBe(409);
+    expect((await service.reviews(DELETED_USER_ID)).total).toBe(0);
+  });
+
+  it('marks the connection key as rejected only when Garmin actually rejects renewal during review', async () => {
+    const item = await pendingReview();
+    await prisma.$executeRaw`UPDATE garmin_personal_item SET review_summary = NULL WHERE id = ${item.id}`;
+    client.download.mockRejectedValueOnce(
+      new GarminPersonalError('key_required'),
+    );
+    client.authorize.mockRejectedValueOnce(
+      new GarminPersonalError('key_required'),
+    );
+    await expect(
+      service.previewReview(DELETED_USER_ID, item.id),
+    ).rejects.toMatchObject({ status: 400 });
+    expect((await connection()).status).toBe('key_required');
+    expect(
+      (
+        await prisma.garminPersonalItem.findUniqueOrThrow({
+          where: { id: item.id },
+        })
+      ).needsReview,
+    ).toBe(true);
+  });
 });
