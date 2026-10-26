@@ -19,6 +19,7 @@ import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { GarminPersonalSync } from './garmin-personal-sync';
 import { StravaSync } from './strava-sync';
 
 const kinds: HealthSyncKind[] = ['workouts', 'measurements'];
@@ -259,6 +260,7 @@ export function SyncPanel() {
         )}
       </div>
       <StravaSync key={key} scope={key} provider={strava} />
+      <GarminPersonalSync />
       <ZwiftSync />
     </section>
   );

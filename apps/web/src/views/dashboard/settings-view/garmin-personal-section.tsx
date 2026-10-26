@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { m } from '@/paraglide/messages';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import {
@@ -38,19 +39,31 @@ function statusLabel(status: GarminPersonalStatus['status']) {
   }
 }
 
-export function GarminPersonalSection() {
+export function GarminPersonalSection({
+  mode = 'connection',
+}: {
+  mode?: 'connection' | 'sync';
+}) {
   const { data: user } = useGetMeQuery();
   return user ? (
-    <PersonalConnection key={user.userId} userId={user.userId} />
+    <PersonalConnection
+      key={`${user.userId}-${mode}`}
+      userId={user.userId}
+      mode={mode}
+    />
   ) : null;
 }
 
-function PersonalConnection({ userId }: { userId: number }) {
+function PersonalConnection({
+  userId,
+  mode,
+}: {
+  userId: number;
+  mode: 'connection' | 'sync';
+}) {
   const cache = useQueryClient();
   const key = ['garmin-personal', userId];
   const [apiKey, setApiKey] = useState('');
-  const [activities, setActivities] = useState(false);
-  const [automatic, setAutomatic] = useState(false);
   const [startDate, setStartDate] = useState(() =>
     new Date(Date.now() - 27 * 86400000).toISOString().slice(0, 10),
   );
@@ -114,15 +127,13 @@ function PersonalConnection({ userId }: { userId: number }) {
   const running = value?.status === 'queued' || value?.status === 'running';
   const selected = value?.connected
     ? value.preferences
-    : { activities, automatic };
+    : { activities: false, automatic: false };
   const setPreference = (
     name: 'activities' | 'automatic',
     checked: boolean,
   ) => {
     if (value?.connected)
       preferences.mutate({ ...value.preferences, [name]: checked });
-    else if (name === 'activities') setActivities(checked);
-    else setAutomatic(checked);
   };
   const pull = () => {
     const range = garminPersonalSyncSchema.safeParse({ startDate, endDate });
@@ -135,17 +146,12 @@ function PersonalConnection({ userId }: { userId: number }) {
   return (
     <SettingsSection
       title={m.garmin_personal_title()}
-      description={m.garmin_personal_description()}
+      description={
+        mode === 'connection' ? m.garmin_personal_description() : undefined
+      }
       contentClassName="space-y-4 pt-4"
+      className={mode === 'sync' ? 'mt-4' : undefined}
     >
-      <a
-        className="text-sm underline"
-        href="https://developer.garmin.com/gc-developer-program/personal/personal-api/"
-        target="_blank"
-        rel="noreferrer"
-      >
-        {m.garmin_personal_instructions()}
-      </a>
       {status.isPending ? (
         <p>{m.garmin_personal_loading()}</p>
       ) : status.isError ? (
@@ -155,54 +161,96 @@ function PersonalConnection({ userId }: { userId: number }) {
           {value?.connected && value.status !== 'key_required' && (
             <p>{m.garmin_personal_key_accepted()}</p>
           )}
-          <p role="status">{statusLabel(value?.status ?? 'disconnected')}</p>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="garmin-personal-activities"
-              disabled={busy}
-              checked={selected.activities}
-              onCheckedChange={(v) => setPreference('activities', v === true)}
-            />
-            <Label htmlFor="garmin-personal-activities">
-              {m.garmin_personal_consent()}
-            </Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="garmin-personal-automatic"
-              disabled={busy}
-              checked={selected.automatic}
-              onCheckedChange={(v) => setPreference('automatic', v === true)}
-            />
-            <Label htmlFor="garmin-personal-automatic">
-              {m.garmin_personal_automatic()}
-            </Label>
-          </div>
-          <form
-            className="space-y-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              connect.mutate({ apiKey, ...selected });
-            }}
-          >
-            <Label htmlFor="garmin-personal-key">
-              {m.garmin_personal_key()}
-            </Label>
-            <Input
-              id="garmin-personal-key"
-              type="password"
-              autoComplete="off"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              maxLength={4096}
-              disabled={busy}
-            />
-            <Button type="submit" disabled={busy || apiKey.trim().length < 8}>
-              {m.garmin_personal_save()}
-            </Button>
-          </form>
-          {value?.connected && (
+          <p role="status">
+            {statusLabel(
+              mode === 'sync' || value?.status === 'key_required'
+                ? (value?.status ?? 'disconnected')
+                : value?.connected
+                  ? 'idle'
+                  : 'disconnected',
+            )}
+          </p>
+          {mode === 'connection' ? (
             <>
+              <a
+                className="text-sm underline"
+                href="https://connect.garmin.com/app/settings/personalApiToken"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {m.garmin_personal_instructions()}
+              </a>
+              <form
+                className="space-y-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  connect.mutate({ apiKey, ...selected });
+                }}
+              >
+                <Label htmlFor="garmin-personal-key">
+                  {m.garmin_personal_key()}
+                </Label>
+                <Input
+                  id="garmin-personal-key"
+                  type="password"
+                  autoComplete="off"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  maxLength={4096}
+                  disabled={busy}
+                />
+                <Button
+                  type="submit"
+                  disabled={busy || apiKey.trim().length < 8}
+                >
+                  {m.garmin_personal_save()}
+                </Button>
+              </form>
+              {value?.connected && (
+                <Button
+                  variant="outline"
+                  onClick={() => disconnect.mutate()}
+                  disabled={busy}
+                >
+                  {m.garmin_personal_disconnect()}
+                </Button>
+              )}
+            </>
+          ) : !value?.connected ? (
+            <Link
+              className="text-sm underline"
+              to="/dashboard/settings?tab=connectors"
+            >
+              {m.sync_manage_connections()}
+            </Link>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="garmin-personal-activities"
+                  disabled={busy}
+                  checked={selected.activities}
+                  onCheckedChange={(v) =>
+                    setPreference('activities', v === true)
+                  }
+                />
+                <Label htmlFor="garmin-personal-activities">
+                  {m.garmin_personal_consent()}
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="garmin-personal-automatic"
+                  disabled={busy}
+                  checked={selected.automatic}
+                  onCheckedChange={(v) =>
+                    setPreference('automatic', v === true)
+                  }
+                />
+                <Label htmlFor="garmin-personal-automatic">
+                  {m.garmin_personal_automatic()}
+                </Label>
+              </div>
               <div className="flex flex-wrap gap-3">
                 <div>
                   <Label htmlFor="garmin-personal-start">
@@ -230,21 +278,12 @@ function PersonalConnection({ userId }: { userId: number }) {
               <p className="text-sm text-muted-foreground">
                 {m.garmin_personal_range_hint()}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={pull}
-                  disabled={busy || running || !selected.activities}
-                >
-                  {m.garmin_personal_sync()}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => disconnect.mutate()}
-                  disabled={busy}
-                >
-                  {m.garmin_personal_disconnect()}
-                </Button>
-              </div>
+              <Button
+                onClick={pull}
+                disabled={busy || running || !selected.activities}
+              >
+                {m.garmin_personal_sync()}
+              </Button>
               {value.error && (
                 <p role="alert">
                   {value.error === 'rate_limited'

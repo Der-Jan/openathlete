@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GarminPersonalStatus } from '@openathlete/shared';
@@ -43,11 +44,13 @@ describe('Garmin Personal settings', () => {
   let element: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
   let cache: QueryClient;
-  const render = async () => {
+  const render = async (mode: 'connection' | 'sync' = 'connection') => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={cache}>
-          <GarminPersonalSection />
+          <MemoryRouter>
+            <GarminPersonalSection mode={mode} />
+          </MemoryRouter>
         </QueryClientProvider>,
       );
     });
@@ -91,11 +94,7 @@ describe('Garmin Personal settings', () => {
   it('requires separate activity consent and clears a rejected key', async () => {
     api.connect.mockRejectedValue(new Error('synthetic rejection'));
     await render();
-    expect(
-      element
-        .querySelector('#garmin-personal-activities')
-        ?.getAttribute('data-state'),
-    ).toBe('unchecked');
+    expect(element.querySelector('#garmin-personal-activities')).toBeNull();
     await fill(key(), 'synthetic-personal-key');
     await act(async () =>
       element
@@ -127,12 +126,13 @@ describe('Garmin Personal settings', () => {
       preferences: { activities: true, automatic: false },
       status: 'queued',
     });
-    await render();
+    await render('sync');
     expect(element.querySelector('[role=status]')?.textContent).toBe(
       'garmin_personal_queued',
     );
     expect(button('garmin_personal_sync').disabled).toBe(true);
-    expect(button('garmin_personal_disconnect').disabled).toBe(false);
+    expect(element.querySelector('#garmin-personal-key')).toBeNull();
+    expect(element.textContent).not.toContain('garmin_personal_disconnect');
     expect(api.sync).not.toHaveBeenCalled();
   });
   it('separates an import failure from the accepted key', async () => {
@@ -143,7 +143,7 @@ describe('Garmin Personal settings', () => {
       status: 'failed',
       error: 'unavailable',
     });
-    await render();
+    await render('sync');
     expect(element.textContent).toContain('garmin_personal_key_accepted');
     expect(element.querySelector('[role=alert]')?.textContent).toBe(
       'garmin_personal_import_failed',
@@ -159,10 +159,28 @@ describe('Garmin Personal settings', () => {
       status: 'key_required',
       error: 'key_required',
     });
-    await render();
+    await render('sync');
     expect(element.textContent).not.toContain('garmin_personal_key_accepted');
     expect(element.querySelector('[role=alert]')?.textContent).toBe(
       'garmin_personal_key_required',
+    );
+  });
+  it('keeps sync controls and import errors out of connection settings', async () => {
+    api.status.mockResolvedValue({
+      ...disconnected,
+      connected: true,
+      preferences: { activities: true, automatic: true },
+      status: 'failed',
+      error: 'unavailable',
+    });
+    await render();
+    expect(key()).not.toBeNull();
+    expect(element.textContent).toContain('garmin_personal_key_accepted');
+    expect(element.querySelector('#garmin-personal-automatic')).toBeNull();
+    expect(element.querySelector('#garmin-personal-start')).toBeNull();
+    expect(element.querySelector('[role=alert]')).toBeNull();
+    expect(element.querySelector('[role=status]')?.textContent).toBe(
+      'garmin_personal_idle',
     );
   });
 });

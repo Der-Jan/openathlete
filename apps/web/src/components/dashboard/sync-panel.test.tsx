@@ -14,6 +14,9 @@ const mock = vi.hoisted(() => ({
   account: 42,
 }));
 vi.mock('@/components/zwift/zwift-sync', () => ({ ZwiftSync: () => null }));
+vi.mock('./garmin-personal-sync', () => ({
+  GarminPersonalSync: () => <div>Garmin sync</div>,
+}));
 vi.mock('./strava-sync', () => ({ StravaSync: () => <div>Strava sync</div> }));
 vi.mock('@/api/provider/provider.hooks', () => ({
   useGetConnectedProvidersQuery: () => ({
@@ -92,6 +95,7 @@ describe('dedicated sync and import panel', () => {
       '/dashboard/settings?tab=connectors',
     );
     expect(container.textContent).toContain('Strava sync');
+    expect(container.textContent).toContain('Garmin sync');
   });
   it('syncs both approved Health scopes and retains separate results if one fails', async () => {
     mock.sync.mockRejectedValueOnce(new Error('private sample text'));
