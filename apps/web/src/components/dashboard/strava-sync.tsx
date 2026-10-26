@@ -91,7 +91,7 @@ export function StravaSync({
         : m.sync_source_failed();
   return (
     <section
-      className="mt-5 space-y-3 border-t pt-4 ph-no-capture ph-mask"
+      className="mt-4 space-y-3 rounded-xl border bg-card p-4 shadow-sm md:p-6 ph-no-capture ph-mask"
       data-cs-mask="true"
       aria-label="Strava"
     >

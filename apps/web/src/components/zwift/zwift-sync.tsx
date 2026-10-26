@@ -40,7 +40,7 @@ export function ZwiftSync() {
   const workouts = todaysZwiftWorkouts(events.data ?? [], now);
   return (
     <section
-      className="mt-5 border-t pt-4 space-y-3"
+      className="mt-4 space-y-3 rounded-xl border bg-card p-4 shadow-sm md:p-6"
       aria-label={m.zwift_today()}
     >
       <h2 className="font-semibold">{m.zwift_today()}</h2>
