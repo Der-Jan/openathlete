@@ -135,4 +135,34 @@ describe('Garmin Personal settings', () => {
     expect(button('garmin_personal_disconnect').disabled).toBe(false);
     expect(api.sync).not.toHaveBeenCalled();
   });
+  it('separates an import failure from the accepted key', async () => {
+    api.status.mockResolvedValue({
+      ...disconnected,
+      connected: true,
+      preferences: { activities: true, automatic: false },
+      status: 'failed',
+      error: 'unavailable',
+    });
+    await render();
+    expect(element.textContent).toContain('garmin_personal_key_accepted');
+    expect(element.querySelector('[role=alert]')?.textContent).toBe(
+      'garmin_personal_import_failed',
+    );
+    expect(element.textContent).not.toContain('garmin_personal_key_required');
+    expect(element.textContent).not.toContain('garmin_personal_request_failed');
+  });
+  it('does not claim the key is accepted after Garmin rejects it', async () => {
+    api.status.mockResolvedValue({
+      ...disconnected,
+      connected: true,
+      preferences: { activities: true, automatic: false },
+      status: 'key_required',
+      error: 'key_required',
+    });
+    await render();
+    expect(element.textContent).not.toContain('garmin_personal_key_accepted');
+    expect(element.querySelector('[role=alert]')?.textContent).toBe(
+      'garmin_personal_key_required',
+    );
+  });
 });

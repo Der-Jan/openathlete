@@ -47,7 +47,9 @@ export class GarminPersonalClient {
         url: BASE + path,
         headers: {
           Authorization: authorization,
-          Accept: binary ? 'application/zip' : '*/*',
+          // Garmin serves FIT archives as application/x-zip-compressed.
+          // Requiring application/zip causes its content negotiation to return 406.
+          Accept: '*/*',
         },
         params,
         timeout: 30000,

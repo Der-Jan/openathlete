@@ -1661,7 +1661,7 @@
   "garmin_personal_key_required": "Votre clé a expiré ou a été révoquée. Enregistrez une nouvelle clé.",
   "garmin_personal_failed": "Échec de la synchronisation",
   "garmin_personal_loading": "Chargement de la connexion…",
-  "garmin_personal_request_failed": "Impossible de terminer la demande. Vérifiez votre clé et votre connexion, puis réessayez.",
+  "garmin_personal_request_failed": "Impossible de terminer cette demande de réglage. Veuillez réessayer.",
   "garmin_personal_consent": "Autoriser l’importation de mes activités Garmin",
   "garmin_personal_automatic": "Vérifier automatiquement les sept derniers jours chaque heure",
   "garmin_personal_key": "Clé API personnelle",
@@ -1674,5 +1674,8 @@
   "garmin_personal_date_invalid": "Choisissez une période valide de 28 jours maximum, se terminant aujourd’hui ou avant.",
   "garmin_personal_rate_limited": "Garmin a limité les demandes. Patientez avant de réessayer.",
   "garmin_personal_result": "Nouvelles : {imported}. Existantes : {existing}. À vérifier : {review}. Échecs : {failed}. Traitement en attente : {pending}.",
-  "garmin_personal_truncated": "La limite de 1 000 activités a été atteinte. Choisissez une période plus courte."
+  "garmin_personal_truncated": "La limite de 1 000 activités a été atteinte. Choisissez une période plus courte.",
+  "garmin_personal_key_accepted": "Clé API acceptée. Votre connexion Garmin est enregistrée.",
+  "garmin_personal_import_request_failed": "Impossible de démarrer l’import des activités. Votre connexion Garmin enregistrée est conservée. Veuillez réessayer.",
+  "garmin_personal_import_failed": "L’import des activités a échoué. Votre clé API a été acceptée ; cet échec ne signifie pas que la clé est invalide. Veuillez réessayer plus tard."
 }

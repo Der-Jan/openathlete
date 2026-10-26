@@ -80,6 +80,8 @@ describe('Garmin documented Personal API transport', () => {
       Buffer.from('synthetic zip'),
     );
     expect(request.mock.calls[0][0].responseType).toBe('arraybuffer');
+    // Garmin returns application/x-zip-compressed and rejects application/zip-only requests.
+    expect(request.mock.calls[0][0].headers.Accept).toBe('*/*');
     await expect(client.download(credentials, '../profile')).rejects.toThrow();
     expect(
       activityListSchema.safeParse([

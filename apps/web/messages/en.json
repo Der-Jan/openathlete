@@ -1661,7 +1661,7 @@
   "garmin_personal_key_required": "Your key expired or was revoked. Save a new key to reconnect.",
   "garmin_personal_failed": "Sync failed",
   "garmin_personal_loading": "Loading connection…",
-  "garmin_personal_request_failed": "Could not complete the request. Check your key and connection, then try again.",
+  "garmin_personal_request_failed": "Could not complete this settings request. Please try again.",
   "garmin_personal_consent": "Allow importing my Garmin activities",
   "garmin_personal_automatic": "Automatically check the last seven days every hour",
   "garmin_personal_key": "Personal API key",
@@ -1674,5 +1674,8 @@
   "garmin_personal_date_invalid": "Choose a valid range of up to 28 days ending today or earlier.",
   "garmin_personal_rate_limited": "Garmin limited requests. Wait before trying again.",
   "garmin_personal_result": "New: {imported}. Existing: {existing}. Needs review: {review}. Failed: {failed}. Processing pending: {pending}.",
-  "garmin_personal_truncated": "The 1,000-activity limit was reached. Import a smaller date range."
+  "garmin_personal_truncated": "The 1,000-activity limit was reached. Import a smaller date range.",
+  "garmin_personal_key_accepted": "API key accepted. Your Garmin connection is saved.",
+  "garmin_personal_import_request_failed": "Could not start the activity import. Your saved Garmin connection has been kept. Please try again.",
+  "garmin_personal_import_failed": "Activity import failed. Your API key was accepted; this failure does not mean the key is invalid. Please try again later."
 }
