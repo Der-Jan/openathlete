@@ -47,7 +47,6 @@ import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 import { QueueService } from 'src/modules/queue/queue.service';
 
 import {
-  GarminHealthPingPayload,
   PolarWebhookPayload,
   SuuntoWebhookPayload,
 } from '../../core/types/connector';
@@ -382,20 +381,10 @@ export class ProviderOAuthController {
       providerEnum,
     );
 
-    // For Garmin, call deleteUserRegistration API before revoking
-    if (providerEnum === ConnectorProvider.GARMIN && account.accessToken) {
-      try {
-        await this.garminProviderService.deleteUserRegistration(
-          account.accessToken,
-        );
-      } catch (error) {
-        // Log error but continue with revocation
-        // Token might already be expired or invalid
-        this.logger.error(
-          `Failed to delete Garmin user registration: ${error instanceof Error ? error.message : String(error)}`,
-          error instanceof Error ? error.stack : undefined,
-        );
-      }
+    // Garmin must stop sending this user's data: deregister them there
+    if (providerEnum === ConnectorProvider.GARMIN) {
+      await this.garminProviderService.disconnect(account);
+      return { success: true, message: `Disconnected from ${provider}` };
     }
 
     // For Suunto, call deauthorize API before revoking
@@ -863,401 +852,56 @@ export class ProviderOAuthController {
     await this.stravaProviderService.handleWebhook(body);
   }
 
+  /**
+   * Garmin notifications. Garmin posts each summary type (activities,
+   * activity files, dailies, sleeps..., deregistrations and permission
+   * changes) to the URL set for it in its endpoint configuration tool; all
+   * of these routes accept any of them. Data notifications are queued and
+   * the 200 goes out at once: Garmin gives up after 30 seconds.
+   */
   @SkipThrottle()
-  @Post('garmin/webhook/activity-ping')
+  @Post([
+    'garmin/webhook',
+    'garmin/webhook/activity-ping',
+    'garmin/webhook/health-ping',
+    'garmin/webhook/activity-files',
+    'garmin/webhook/deregistration',
+    'garmin/webhook/user-permissions-change',
+  ])
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Garmin activity ping webhook',
+    summary: 'Garmin notification webhook',
     description:
-      'Receives activity ping notifications from Garmin when new activities are available. Processes multiple activity pings in a batch. Each ping contains a userId and callbackURL. The webhook triggers activity import for the corresponding Garmin account. Invalid pings (missing userId or callbackURL) are skipped without failing the entire batch.',
+      'Receives Garmin ping and push notifications of every summary type, as { "<summaryType>": [entries] }. Pings carry a callbackURL that the worker pulls; pushes carry the data. Deregistrations and user permission changes are applied immediately. Answers 200 once the notifications are queued.',
   })
   @ApiBody({
-    description: 'Garmin activity ping payload',
+    description: 'Garmin notification body',
     schema: {
       type: 'object',
-      properties: {
-        activities: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              userId: {
-                type: 'string',
-                description: 'Garmin user ID',
-                example: 'garmin-user-123',
-              },
-              callbackURL: {
-                type: 'string',
-                format: 'uri',
-                description: 'URL to fetch activity data from',
-                example: 'https://connectapi.garmin.com/...',
-              },
-            },
+      additionalProperties: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            userId: { type: 'string' },
+            callbackURL: { type: 'string', format: 'uri' },
           },
         },
       },
-      required: ['activities'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Activity pings processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Bad request - invalid payload or missing activities array',
-  })
-  async garminActivityPingWebhook(@Body() body: unknown) {
-    const payload = body as {
-      activities?: Array<{ userId?: string; callbackURL?: string }>;
-    };
-
-    if (!payload.activities || !Array.isArray(payload.activities)) {
-      return {
-        success: false,
-        error: 'Invalid payload: missing activities array',
-      };
-    }
-
-    // Process callbacks asynchronously after returning HTTP 200 to avoid
-    // Garmin webhook timeouts. Each callback fetch can take several seconds
-    // and the batch may contain many entries.
-    const activities = payload.activities;
-    setImmediate(() => {
-      void (async () => {
-        for (const activityPing of activities) {
-          const userId = activityPing.userId;
-          const callbackURL = activityPing.callbackURL;
-
-          if (!userId || !callbackURL) {
-            this.logger.warn(
-              'Garmin activity ping missing userId or callbackURL; skipping',
-            );
-            continue;
-          }
-
-          try {
-            await this.garminProviderService.handleActivityPingWebhook({
-              userId,
-              callbackURL,
-            });
-          } catch (error) {
-            this.logger.error(
-              `Failed to handle Garmin activity ping for user ${userId}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-      })();
-    });
-
-    return { success: true };
-  }
-
-  @SkipThrottle()
-  @Post('garmin/webhook/health-ping')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Garmin health ping webhook',
-    description:
-      "Receives health ping notifications from Garmin. Health pings are used to verify the webhook endpoint is operational and to receive health-related data updates. The payload structure may vary based on Garmin's webhook configuration.",
-  })
-  @ApiBody({
-    description: 'Garmin health ping payload',
-    schema: {
-      type: 'object',
-      properties: {
-        userId: {
-          type: 'string',
-          description: 'Garmin user ID',
-          example: 'garmin-user-123',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Health ping processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-      },
-    },
-  })
-  async garminHealthPingWebhook(
-    @Body() body: GarminHealthPingPayload | undefined,
-  ) {
-    await this.garminProviderService.handleHealthPingWebhook(body);
-    return { success: true };
-  }
-
-  @SkipThrottle()
-  @Post('garmin/webhook/activity-files')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Garmin activity files webhook',
-    description:
-      'Receives notifications from Garmin when activity files (FIT or GPX) are available for download. Processes multiple file notifications in a batch. Only FIT and GPX file types are processed. Each notification includes activity metadata (ID, name, type, device, start time) and a callbackURL to download the file. Invalid notifications (missing required fields) are skipped without failing the entire batch.',
-  })
-  @ApiBody({
-    description: 'Garmin activity files webhook payload',
-    schema: {
-      type: 'object',
-      properties: {
-        activityFiles: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              userId: {
-                type: 'string',
-                description: 'Garmin user ID',
-                example: 'garmin-user-123',
-              },
-              summaryId: {
-                type: 'string',
-                description: 'Activity summary ID',
-                example: 'summary-123',
-              },
-              fileType: {
-                type: 'string',
-                enum: ['FIT', 'GPX'],
-                description: 'File type (only FIT and GPX are processed)',
-                example: 'FIT',
-              },
-              callbackURL: {
-                type: 'string',
-                format: 'uri',
-                description: 'URL to download the activity file',
-                example: 'https://connectapi.garmin.com/...',
-              },
-              activityType: {
-                type: 'string',
-                description: 'Type of activity',
-                example: 'running',
-              },
-              deviceName: {
-                type: 'string',
-                description: 'Device name that recorded the activity',
-                example: 'Forerunner 945',
-              },
-              startTimeInSeconds: {
-                type: 'number',
-                description: 'Activity start time (Unix timestamp)',
-                example: 1704067200,
-              },
-              activityId: {
-                type: 'number',
-                description: 'Garmin activity ID',
-                example: 123456789,
-              },
-              activityName: {
-                type: 'string',
-                description: 'Activity name',
-                example: 'Morning Run',
-              },
-              manual: {
-                type: 'boolean',
-                description: 'Whether activity was manually entered',
-                example: false,
-              },
-              activityDescription: {
-                type: 'string',
-                nullable: true,
-                description: 'Activity description',
-                example: 'Easy recovery run',
-              },
-            },
-            required: ['userId', 'callbackURL', 'fileType', 'activityId'],
+      example: {
+        activities: [
+          {
+            userId: '4aacafe82427c251df9c9592d0c06768',
+            callbackURL:
+              'https://apis.garmin.com/wellness-api/rest/activities?uploadStartTimeInSeconds=1444937651&uploadEndTimeInSeconds=1444937902&token=XXXX',
           },
-        },
-      },
-      required: ['activityFiles'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Activity files webhook processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
+        ],
       },
     },
   })
-  @ApiResponse({
-    status: 400,
-    description: 'Bad request - invalid payload or missing activityFiles array',
-  })
-  async garminActivityFilesWebhook(@Body() body: unknown) {
-    const payload = body as {
-      activityFiles?: Array<{
-        userId?: string;
-        summaryId?: string;
-        fileType?: string;
-        callbackURL?: string;
-        activityType?: string;
-        deviceName?: string;
-        startTimeInSeconds?: number;
-        activityId?: number;
-        activityName?: string;
-        manual?: boolean;
-        activityDescription?: string;
-      }>;
-    };
-
-    if (!payload.activityFiles || !Array.isArray(payload.activityFiles)) {
-      return {
-        success: false,
-        error: 'Invalid payload: missing activityFiles array',
-      };
-    }
-
-    // Process callbacks asynchronously after returning HTTP 200 to avoid
-    // Garmin webhook timeouts (file downloads can take several seconds each).
-    const activityFiles = payload.activityFiles;
-    setImmediate(() => {
-      void (async () => {
-        for (const filePing of activityFiles) {
-          const userId = filePing.userId;
-          const callbackURL = filePing.callbackURL;
-          const fileType = filePing.fileType;
-          const activityId = filePing.activityId;
-
-          if (!userId || !callbackURL || !fileType || !activityId) {
-            this.logger.warn(
-              'Garmin activity file ping missing required fields; skipping',
-            );
-            continue;
-          }
-
-          if (fileType !== 'FIT' && fileType !== 'GPX') {
-            this.logger.debug(
-              `Garmin activity file ping with unsupported fileType ${fileType}; skipping`,
-            );
-            continue;
-          }
-
-          try {
-            await this.garminProviderService.handleActivityFilePingWebhook({
-              userId,
-              summaryId: filePing.summaryId || '',
-              fileType: fileType as 'FIT' | 'GPX',
-              callbackURL,
-              activityType: filePing.activityType || '',
-              deviceName: filePing.deviceName || '',
-              startTimeInSeconds: filePing.startTimeInSeconds || 0,
-              activityId,
-              activityName: filePing.activityName || '',
-              manual: filePing.manual || false,
-              activityDescription: filePing.activityDescription,
-            });
-          } catch (error) {
-            this.logger.error(
-              `Failed to handle Garmin activity file ping for activity ${activityId}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-      })();
-    });
-
-    return { success: true };
-  }
-
-  @SkipThrottle()
-  @Post('garmin/webhook/deregistration')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Garmin user deregistration webhook',
-    description:
-      'Receives notifications from Garmin when a user deregisters their account from Garmin Connect. This webhook is triggered when a user disconnects their Garmin account from the Garmin Connect platform. The system should handle this by marking the provider account as revoked.',
-  })
-  @ApiBody({
-    description: 'Garmin deregistration webhook payload',
-    schema: {
-      type: 'object',
-      properties: {
-        userId: {
-          type: 'string',
-          description: 'Garmin user ID being deregistered',
-          example: 'garmin-user-123',
-        },
-      },
-      required: ['userId'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Deregistration webhook processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-      },
-    },
-  })
-  async garminDeregistrationWebhook(
-    @Body()
-    body: {
-      userId: string;
-    },
-  ) {
-    await this.garminProviderService.handleDeregistrationWebhook(body);
-    return { success: true };
-  }
-
-  @SkipThrottle()
-  @Post('garmin/webhook/user-permissions-change')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Garmin user permissions change webhook',
-    description:
-      'Receives notifications from Garmin when a user changes their permissions or revokes access to the application. This webhook is triggered when permissions are modified in Garmin Connect settings. The system should handle this by updating the provider account status accordingly.',
-  })
-  @ApiBody({
-    description: 'Garmin permissions change webhook payload',
-    schema: {
-      type: 'object',
-      properties: {
-        userId: {
-          type: 'string',
-          description: 'Garmin user ID',
-          example: 'garmin-user-123',
-        },
-        permissions: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Updated permissions list',
-          example: ['activity.read', 'health.read'],
-        },
-      },
-      required: ['userId', 'permissions'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Permissions change webhook processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-      },
-    },
-  })
-  async garminUserPermissionsChangeWebhook(
-    @Body()
-    body: {
-      userId: string;
-      permissions: string[];
-    },
-  ) {
-    await this.garminProviderService.handleUserPermissionsChangeWebhook(body);
+  @ApiResponse({ status: 200, description: 'Notifications accepted' })
+  async garminWebhook(@Body() body: unknown) {
+    await this.garminProviderService.handleWebhook(body);
     return { success: true };
   }
 

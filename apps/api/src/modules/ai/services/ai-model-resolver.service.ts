@@ -15,6 +15,7 @@ import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 import { SubscriptionService } from 'src/modules/subscription/services/subscription.service';
 
 import {
+  AiConsentRequiredException,
   AiHostedQuotaExceededException,
   AiNotConfiguredException,
 } from '../ai.errors';
@@ -54,6 +55,9 @@ const NO_API_KEY = 'not-needed';
  *    (AI_HOSTED_MONTHLY_BUDGET_USD);
  * 3. for work done on an athlete's behalf (feedback questions, analysis,
  *    load estimation), the same for each of the athlete's coaches.
+ *
+ * Nothing runs on someone's data until they allowed it to be sent to AI
+ * providers (App Store guideline 5.1.2(i), GDPR).
  */
 @Injectable()
 export class AiModelResolverService {
@@ -75,7 +79,12 @@ export class AiModelResolverService {
     userId: number,
   ): Promise<ResolvedAiModel> {
     const resolved = await this.tryResolveForUser(task, userId);
-    if (resolved) return resolved;
+    if (resolved) {
+      if (!(await this.hasDataSharingConsent(userId))) {
+        throw new AiConsentRequiredException();
+      }
+      return resolved;
+    }
     if (
       this.resolveHosted(task, userId) &&
       (await this.hasHostedAccess(userId))
@@ -88,17 +97,47 @@ export class AiModelResolverService {
 
   /**
    * For background work on an athlete's data: the athlete first, then their
-   * coaches. Returns null when none of them has AI for the task.
+   * coaches. Returns null when none of them has AI for the task, or when the
+   * athlete has not allowed their data to be sent to AI providers.
    */
   async tryResolveForAthlete(
     task: AiFeatureTask,
     athleteId: number,
   ): Promise<ResolvedAiModel | null> {
-    for (const userId of await this.usersForAthlete(athleteId)) {
+    return this.resolveForAthleteChain(task, athleteId, true);
+  }
+
+  private async resolveForAthleteChain(
+    task: AiFeatureTask,
+    athleteId: number,
+    requireConsent: boolean,
+  ): Promise<ResolvedAiModel | null> {
+    let userIds = await this.usersForAthlete(athleteId);
+    if (requireConsent) {
+      const consented = await this.consentedUserIds(userIds);
+      // The athlete's data leaves only with their permission, and through a
+      // coach's key only with that coach's permission too
+      if (!consented.has(userIds[0])) return null;
+      userIds = userIds.filter((userId) => consented.has(userId));
+    }
+    for (const userId of userIds) {
       const resolved = await this.tryResolveForUser(task, userId);
       if (resolved) return resolved;
     }
     return null;
+  }
+
+  async hasDataSharingConsent(userId: number): Promise<boolean> {
+    return (await this.consentedUserIds([userId])).has(userId);
+  }
+
+  private async consentedUserIds(userIds: number[]): Promise<Set<number>> {
+    if (userIds.length === 0) return new Set();
+    const users = await this.prisma.user.findMany({
+      where: { userId: { in: userIds }, aiDataSharingConsentAt: { not: null } },
+      select: { userId: true },
+    });
+    return new Set(users.map((user) => user.userId));
   }
 
   async tryResolveForUser(
@@ -127,7 +166,8 @@ export class AiModelResolverService {
   }
 
   /**
-   * What each feature would run on for the user. Background features use
+   * What each feature would run on for the user, consent aside, so the app
+   * can name the providers before asking for it. Background features use
    * the athlete's chain (athlete, then coaches) when an athlete is given.
    */
   async describeAccess(
@@ -143,7 +183,7 @@ export class AiModelResolverService {
       AI_FEATURE_TASKS.map(async (task) => {
         const resolved =
           athleteId !== undefined && backgroundTasks.includes(task)
-            ? await this.tryResolveForAthlete(task, athleteId)
+            ? await this.resolveForAthleteChain(task, athleteId, false)
             : await this.tryResolveForUser(task, userId);
         const access: AiTaskAccessDto = resolved
           ? {
@@ -162,6 +202,10 @@ export class AiModelResolverService {
     );
     const allowed = await this.hasHostedAccess(userId);
     const hostedAvailable = allowed && instanceHasKeys;
+    const athleteUserId =
+      athleteId === undefined
+        ? undefined
+        : (await this.usersForAthlete(athleteId))[0];
     return {
       tasks: Object.fromEntries(entries) as AiAccessDto['tasks'],
       hostedAccess: hostedAvailable,
@@ -173,6 +217,13 @@ export class AiModelResolverService {
       hostedQuotaExhausted:
         hostedAvailable && !(await this.usage.hasHostedAllowanceLeft(userId)),
       usage: await this.usage.describe(userId),
+      dataSharingConsent: await this.hasDataSharingConsent(userId),
+      athleteDataSharingConsent:
+        athleteUserId === undefined
+          ? null
+          : await this.hasDataSharingConsent(athleteUserId),
+      // Voice notes go to OpenAI's Whisper on the instance key
+      transcriptionProvider: this.env.OPENAI_API_KEY ? 'openai' : null,
     };
   }
 

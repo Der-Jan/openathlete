@@ -44,7 +44,7 @@ export default async function PrivacyPolicyPage({
   }
 
   // Update when the policy changes; never the build date
-  const lastUpdated = '2026-10-04';
+  const lastUpdated = '2026-10-27';
 
   return (
     <>

@@ -61,4 +61,15 @@ export class AiSettingsAPI {
     });
     return res.data;
   }
+
+  /** The user allows their data to be sent to AI providers */
+  static async allowDataSharing(): Promise<AiAccessDto> {
+    const res = await client.post(routes.aiSettings.consent);
+    return res.data;
+  }
+
+  static async withdrawDataSharing(): Promise<AiAccessDto> {
+    const res = await client.delete(routes.aiSettings.consent);
+    return res.data;
+  }
 }

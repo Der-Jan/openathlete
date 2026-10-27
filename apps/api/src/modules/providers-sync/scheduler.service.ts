@@ -1,13 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 
 import {
+  ApiEnvSchemaType,
   SPORT_TYPE,
   mapPrismaWorkoutToDto,
   normalizeWorkoutForExport,
 } from '@openathlete/shared';
 
 import { PrismaService } from '../prisma/services/prisma.service';
+import { ProviderRateLimitError } from './errors/provider-rate-limit.error';
 import { ProviderExportService } from './export.service';
 
 type ProviderKey = 'garmin' | 'suunto' | 'coros';
@@ -44,11 +47,15 @@ export class ProviderExportScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly exportService: ProviderExportService,
+    private readonly configService: ConfigService<ApiEnvSchemaType, true>,
   ) {}
 
   // Run daily at 00:10 UTC
   @Cron('10 0 * * *', { timeZone: 'UTC' })
   async syncDailyExports() {
+    // The API and the worker run the same image: only the container that
+    // imports activities runs it, else both would send every workout
+    if (this.configService.get('ENABLE_ACTIVITY_IMPORT') !== true) return;
     this.logger.log('Starting daily provider export sync');
     await this.syncExportsForWindow();
   }
@@ -198,6 +205,7 @@ export class ProviderExportScheduler {
           }
         }
 
+        const rateLimited = new Set<string>();
         for (const event of events) {
           if (!event.training?.workout) continue;
 
@@ -214,25 +222,31 @@ export class ProviderExportScheduler {
           const dateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD
 
           // Export to all connected providers
-          const exportPromises = Array.from(providers).map(async (provider) => {
-            try {
-              await this.exportService.upsertPlannedExport({
-                athleteId,
-                provider,
-                workoutId: event.training!.workout!.workoutId,
-                date: dateStr,
-                normalized,
-              });
-              this.logger.debug(
-                `Synced workout ${event.training!.workout!.workoutId} to ${provider} for athlete ${athleteId}`,
-              );
-            } catch (err: unknown) {
-              this.logger.error(
-                `Failed to sync workout ${event.training!.workout!.workoutId} to ${provider} for athlete ${athleteId}: ${err instanceof Error ? err.message : String(err)}`,
-                err instanceof Error ? err.stack : undefined,
-              );
-            }
-          });
+          const exportPromises = Array.from(providers)
+            .filter((provider) => !rateLimited.has(provider))
+            .map(async (provider) => {
+              try {
+                await this.exportService.upsertPlannedExport({
+                  athleteId,
+                  provider,
+                  workoutId: event.training!.workout!.workoutId,
+                  date: dateStr,
+                  normalized,
+                });
+                this.logger.debug(
+                  `Synced workout ${event.training!.workout!.workoutId} to ${provider} for athlete ${athleteId}`,
+                );
+              } catch (err: unknown) {
+                // Out of quota: the failed exports are retried next run
+                if (err instanceof ProviderRateLimitError) {
+                  rateLimited.add(provider);
+                }
+                this.logger.error(
+                  `Failed to sync workout ${event.training!.workout!.workoutId} to ${provider} for athlete ${athleteId}: ${err instanceof Error ? err.message : String(err)}`,
+                  err instanceof Error ? err.stack : undefined,
+                );
+              }
+            });
 
           await Promise.allSettled(exportPromises);
         }

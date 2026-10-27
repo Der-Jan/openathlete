@@ -2,12 +2,21 @@ import axios, { AxiosError, isAxiosError } from 'axios';
 
 import { Injectable, Logger } from '@nestjs/common';
 
-import { ConnectorProvider } from '@openathlete/database';
+import {
+  ConnectorProvider,
+  MetricType,
+  ProviderAccount,
+} from '@openathlete/database';
 import { mapPrismaWorkoutToDto } from '@openathlete/shared';
 
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 
-import { mapWorkoutDtoToGarmin } from '../mapping/garmin.mapper';
+import { ProviderRateLimitError } from '../errors/provider-rate-limit.error';
+import type { GarminMetrics, GarminZone } from '../mapping/garmin-helpers';
+import {
+  GARMIN_MAX_STEPS,
+  mapWorkoutDtoToGarmin,
+} from '../mapping/garmin.mapper';
 import type { GarminStep, GarminWorkout } from '../mapping/garmin.types';
 import type {
   DeletePlannedWorkoutInput,
@@ -17,6 +26,26 @@ import type {
 } from '../provider-adapter.interface';
 import { GarminProviderService } from '../providers/garmin.provider.service';
 
+const TRAINING_API = 'https://apis.garmin.com/training-api';
+// Garmin documents workout creation under another path than the other calls
+const CREATE_WORKOUT_URL = 'https://apis.garmin.com/workoutportal/workout/v2';
+
+/** Metrics that percentage targets refer to */
+const REFERENCE_METRICS: MetricType[] = [
+  MetricType.VMA,
+  MetricType.FTP_RUNNING,
+  MetricType.FTP_CYCLING,
+  MetricType.CRITICAL_POWER_RUNNING,
+  MetricType.CRITICAL_POWER_CYCLING,
+  MetricType.HR_MAX,
+  MetricType.HR_REST,
+  MetricType.HR_RESERVE,
+];
+
+/**
+ * Garmin Training API: a planned session becomes a workout plus a schedule
+ * that puts it on the athlete's Garmin calendar and watch.
+ */
 @Injectable()
 export class GarminAdapter implements ProviderAdapter {
   private readonly logger = new Logger(GarminAdapter.name);
@@ -26,53 +55,62 @@ export class GarminAdapter implements ProviderAdapter {
     private readonly garminProviderService: GarminProviderService,
   ) {}
 
-  private async getLatestMetricsMap(
-    athleteId: number,
-  ): Promise<Record<string, { value: number }>> {
-    const metrics = await this.prisma.athleteMetric.findMany({
-      where: { athleteId: athleteId },
-      orderBy: [{ date: 'desc' }],
-    });
-
-    const latest: Record<string, { value: number }> = {};
-    for (const metric of metrics) {
-      if (!latest[metric.type]) {
-        latest[metric.type] = { value: metric.value };
-      }
-    }
-
-    return latest;
-  }
-
   getProvider(): 'garmin' {
     return 'garmin';
+  }
+
+  private async getAccount(athleteId: number): Promise<ProviderAccount | null> {
+    return this.prisma.providerAccount.findFirst({
+      where: {
+        athleteId,
+        provider: ConnectorProvider.GARMIN,
+        status: 'active',
+      },
+    });
+  }
+
+  private async getMetrics(athleteId: number): Promise<GarminMetrics> {
+    const metrics = await this.prisma.athleteMetric.findMany({
+      where: {
+        athleteId,
+        type: { in: REFERENCE_METRICS },
+      },
+      orderBy: [{ type: 'asc' }, { date: 'desc' }],
+      distinct: ['type'],
+      select: { type: true, value: true },
+    });
+    return Object.fromEntries(
+      metrics.map((metric) => [metric.type, { value: metric.value }]),
+    );
+  }
+
+  private async getZones(athleteId: number): Promise<GarminZone[]> {
+    const zones = await this.prisma.trainingZone.findMany({
+      where: { athleteId },
+      select: {
+        trainingZoneId: true,
+        type: true,
+        values: { select: { min: true, max: true, sports: true } },
+      },
+    });
+    return zones as GarminZone[];
   }
 
   async upsertPlannedWorkout(
     input: UpsertPlannedWorkoutInput,
   ): Promise<UpsertPlannedWorkoutResult> {
-    const account = await this.prisma.providerAccount.findFirst({
-      where: {
-        athleteId: input.athleteId,
-        provider: ConnectorProvider.GARMIN,
-        status: 'active',
-      },
-    });
-
+    const account = await this.getAccount(input.athleteId);
     if (!account) {
       throw new Error('No active Garmin account found for athlete');
     }
 
-    const accessToken =
-      await this.garminProviderService.getValidAccessToken(account);
     const permissions =
-      await this.garminProviderService.getUserPermissions(accessToken);
-
+      await this.garminProviderService.getAccountPermissions(account);
     if (!permissions.includes('WORKOUT_IMPORT')) {
-      throw new Error('User has not granted WORKOUT_IMPORT permission');
+      throw new Error(
+        'The athlete has not allowed workout imports in Garmin Connect',
+      );
     }
-
-    const ownerId = this.getNumericUserId(account.externalUserId);
 
     const workoutRecord = await this.prisma.workout.findUnique({
       where: { workoutId: input.workoutId },
@@ -83,9 +121,7 @@ export class GarminAdapter implements ProviderAdapter {
             repeatBlock: {
               include: {
                 childSteps: {
-                  include: {
-                    targets: true,
-                  },
+                  include: { targets: true },
                   orderBy: { orderIndex: 'asc' },
                 },
               },
@@ -95,311 +131,192 @@ export class GarminAdapter implements ProviderAdapter {
         },
       },
     });
-
     if (!workoutRecord) {
       throw new Error('Workout not found');
     }
 
-    const metrics = await this.getLatestMetricsMap(input.athleteId);
-    const workoutDto = mapPrismaWorkoutToDto(workoutRecord);
+    const [metrics, zones] = await Promise.all([
+      this.getMetrics(input.athleteId),
+      this.getZones(input.athleteId),
+    ]);
     const garminWorkout = mapWorkoutDtoToGarmin(
-      ownerId,
-      workoutDto,
+      mapPrismaWorkoutToDto(workoutRecord),
       input.normalized.sport,
       input.normalized.title,
       input.normalized.description,
-      metrics,
+      { metrics, zones },
     );
-
     this.validateWorkout(garminWorkout);
 
-    const existingWorkoutId = this.getNumericExternalId(
-      input.previousExternalId,
+    const accessToken =
+      await this.garminProviderService.getValidAccessToken(account);
+    const previousWorkoutId = numericId(input.previousExternalId);
+    let previousScheduleId = numericId(input.previousScheduleId);
+
+    let workoutId = previousWorkoutId
+      ? await this.updateWorkout(accessToken, previousWorkoutId, garminWorkout)
+      : null;
+    if (!workoutId) {
+      // New, or deleted in Garmin Connect meanwhile: its schedule went too
+      workoutId = await this.createWorkout(accessToken, garminWorkout);
+      previousScheduleId = null;
+    }
+
+    // The schedule only changes with the workout id: the date is part of
+    // the export, and another date is another export
+    const scheduleId =
+      previousScheduleId ??
+      (await this.createSchedule(accessToken, workoutId, input.date));
+
+    return { externalId: workoutId, scheduleId };
+  }
+
+  private validateWorkout(workout: GarminWorkout): void {
+    const steps = workout.segments.reduce(
+      (sum, segment) => sum + countSteps(segment.steps),
+      0,
     );
-
-    const workoutId = existingWorkoutId
-      ? await this.updateWorkout(accessToken, existingWorkoutId, garminWorkout)
-      : await this.createWorkout(accessToken, garminWorkout);
-
-    const scheduleId = await this.upsertSchedule(accessToken, {
-      workoutId,
-      date: input.date,
-      scheduleId: input.previousScheduleId,
-    });
-
-    return {
-      externalId: workoutId,
-      scheduleId,
-    };
+    if (steps === 0) {
+      throw new Error('Workout has no steps to send to Garmin');
+    }
+    if (steps > GARMIN_MAX_STEPS) {
+      throw new Error(
+        `Workout has ${steps} steps; Garmin accepts ${GARMIN_MAX_STEPS} at most`,
+      );
+    }
   }
 
   private async createWorkout(
     accessToken: string,
     workout: GarminWorkout,
   ): Promise<string> {
-    try {
-      const { data } = await axios.post<GarminWorkout & { workoutId: number }>(
-        'https://apis.garmin.com/workoutportal/workout/v2',
-        workout,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      return data.workoutId.toString();
-    } catch (error) {
-      if (isAxiosError(error)) {
-        this.handleApiError(error);
-      }
-      throw error;
+    const data = await this.request<{ workoutId?: number }>(() =>
+      axios.post(CREATE_WORKOUT_URL, workout, {
+        headers: authHeaders(accessToken),
+      }),
+    );
+    if (!data?.workoutId) {
+      throw new Error('Garmin did not return the created workout id');
     }
+    return String(data.workoutId);
   }
 
+  /**
+   * Replaces a workout. Garmin wants the full workout, with its owner, which
+   * only Garmin knows. Returns null when the workout no longer exists.
+   */
   private async updateWorkout(
     accessToken: string,
     workoutId: string,
     workout: GarminWorkout,
-  ): Promise<string> {
-    try {
-      await axios.put(
-        `https://apis.garmin.com/training-api/workout/v2/${workoutId}`,
-        workout,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      return workoutId;
-    } catch (error) {
-      if (isAxiosError(error)) {
-        this.handleApiError(error);
-      }
-      throw error;
-    }
-  }
-
-  private validateWorkout(workout: GarminWorkout): void {
-    const totalSteps = workout.segments.reduce(
-      (sum, seg) => sum + this.countSteps(seg.steps),
-      0,
+  ): Promise<string | null> {
+    const existing = await this.request<GarminWorkout | null>(
+      () =>
+        axios.get(`${TRAINING_API}/workout/v2/${workoutId}`, {
+          headers: authHeaders(accessToken),
+        }),
+      { notFound: null },
     );
+    if (!existing) return null;
 
-    if (workout.sport === 'MULTI_SPORT') {
-      if (workout.segments.length > 25) {
-        throw new Error('Multisport workout exceeds 25 segments limit');
-      }
-      if (totalSteps > 250) {
-        throw new Error('Multisport workout exceeds 250 steps limit');
-      }
-    } else {
-      if (totalSteps > 100) {
-        throw new Error('Single sport workout exceeds 100 steps limit');
-      }
-    }
-  }
-
-  private countSteps(steps: GarminStep[]): number {
-    return steps.reduce((count, step) => {
-      if (step.type === 'WorkoutRepeatStep') {
-        return count + 1 + this.countSteps(step.steps);
-      }
-      return count + 1;
-    }, 0);
-  }
-
-  private getNumericExternalId(externalId?: string): string | null {
-    if (!externalId) {
-      return null;
-    }
-
-    return /^\d+$/.test(externalId) ? externalId : null;
-  }
-
-  private getNumericUserId(externalUserId?: string | null): number | null {
-    if (!externalUserId || !/^\d+$/.test(externalUserId)) {
-      return null;
-    }
-
-    const parsed = Number(externalUserId);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-
-  private async upsertSchedule(
-    accessToken: string,
-    params: { workoutId: string; date: string; scheduleId?: string },
-  ): Promise<string | undefined> {
-    const numericWorkoutId = Number(params.workoutId);
-    if (Number.isNaN(numericWorkoutId)) {
-      throw new Error('Invalid Garmin workout ID for scheduling');
-    }
-
-    const existingScheduleId = this.getNumericExternalId(params.scheduleId);
-    if (existingScheduleId) {
-      await this.updateSchedule(
-        accessToken,
-        existingScheduleId,
-        numericWorkoutId,
-        params.date,
-      );
-      return existingScheduleId;
-    }
-
-    return this.createSchedule(accessToken, numericWorkoutId, params.date);
+    await this.request(
+      () =>
+        axios.put(
+          `${TRAINING_API}/workout/v2/${workoutId}`,
+          {
+            ...workout,
+            workoutId: Number(workoutId),
+            ownerId: existing.ownerId,
+          },
+          { headers: authHeaders(accessToken) },
+        ),
+      { notFound: null },
+    );
+    return workoutId;
   }
 
   private async createSchedule(
     accessToken: string,
-    workoutId: number,
+    workoutId: string,
     date: string,
-  ): Promise<string | undefined> {
-    try {
-      const { data } = await axios.post<{ scheduleId: number }>(
-        'https://apis.garmin.com/training-api/schedule/',
-        {
-          workoutId,
-          date,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        },
+  ): Promise<string> {
+    const data = await this.request<unknown>(() =>
+      axios.post(
+        `${TRAINING_API}/schedule/`,
+        { workoutId: Number(workoutId), date },
+        { headers: authHeaders(accessToken) },
+      ),
+    );
+    // Garmin answers with the bare schedule id
+    const scheduleId =
+      typeof data === 'number' || typeof data === 'string'
+        ? data
+        : (data as { scheduleId?: number } | null)?.scheduleId;
+    if (scheduleId === undefined || scheduleId === null || scheduleId === '') {
+      throw new Error(
+        `Garmin did not return the schedule id of workout ${workoutId} on ${date}`,
       );
-
-      if (!data?.scheduleId) {
-        this.logger.warn(
-          `Garmin schedule response missing scheduleId for workout ${workoutId} on ${date}`,
-        );
-        return undefined;
-      }
-
-      return data.scheduleId.toString();
-    } catch (error) {
-      if (isAxiosError(error)) {
-        this.handleApiError(error);
-      }
-      throw error;
     }
-  }
-
-  private async updateSchedule(
-    accessToken: string,
-    scheduleId: string,
-    workoutId: number,
-    date: string,
-  ): Promise<void> {
-    try {
-      await axios.put(
-        `https://apis.garmin.com/training-api/schedule/${scheduleId}`,
-        {
-          workoutId,
-          date,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-    } catch (error) {
-      if (isAxiosError(error)) {
-        this.handleApiError(error);
-      }
-      throw error;
-    }
+    return String(scheduleId);
   }
 
   async deletePlannedWorkout(input: DeletePlannedWorkoutInput): Promise<void> {
-    const account = await this.prisma.providerAccount.findFirst({
-      where: {
-        athleteId: input.athleteId,
-        provider: ConnectorProvider.GARMIN,
-        status: 'active',
-      },
-    });
-
+    const account = await this.getAccount(input.athleteId);
     if (!account) {
       this.logger.warn(
-        `No active Garmin account found for athlete ${input.athleteId}, skipping delete`,
+        `No active Garmin account for athlete ${input.athleteId}; nothing deleted`,
       );
       return;
     }
-
     const accessToken =
       await this.garminProviderService.getValidAccessToken(account);
 
-    const scheduleId = this.getNumericExternalId(input.scheduleId ?? undefined);
-    if (scheduleId) {
-      await this.deleteSchedule(accessToken, scheduleId);
-    }
-
-    const workoutId = this.getNumericExternalId(input.externalId ?? undefined);
+    // Deleting the workout deletes its schedules too
+    const workoutId = numericId(input.externalId);
+    const scheduleId = numericId(input.scheduleId);
     if (workoutId) {
-      await this.deleteWorkout(accessToken, workoutId);
+      await this.request(
+        () =>
+          axios.delete(`${TRAINING_API}/workout/v2/${workoutId}`, {
+            headers: authHeaders(accessToken),
+          }),
+        { notFound: null },
+      );
+    } else if (scheduleId) {
+      await this.request(
+        () =>
+          axios.delete(`${TRAINING_API}/schedule/${scheduleId}`, {
+            headers: authHeaders(accessToken),
+          }),
+        { notFound: null },
+      );
     }
   }
 
-  private async deleteSchedule(
-    accessToken: string,
-    scheduleId: string,
-  ): Promise<void> {
+  private async request<T>(
+    send: () => Promise<{ data: T }>,
+    options: { notFound?: T } = {},
+  ): Promise<T> {
     try {
-      await axios.delete(
-        `https://apis.garmin.com/training-api/schedule/${scheduleId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
+      return (await send()).data;
     } catch (error) {
-      if (isAxiosError(error)) {
-        // treat 404 as already deleted
-        if (error.response?.status === 404) {
-          return;
-        }
-        this.handleApiError(error);
+      if (
+        isAxiosError(error) &&
+        error.response?.status === 404 &&
+        'notFound' in options
+      ) {
+        return options.notFound as T;
       }
+      if (isAxiosError(error)) this.handleApiError(error);
       throw error;
     }
   }
 
-  private async deleteWorkout(
-    accessToken: string,
-    workoutId: string,
-  ): Promise<void> {
-    try {
-      await axios.delete(
-        `https://apis.garmin.com/training-api/workout/v2/${workoutId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
-    } catch (error) {
-      if (isAxiosError(error)) {
-        if (error.response?.status === 404) {
-          return;
-        }
-        this.handleApiError(error);
-      }
-      throw error;
-    }
-  }
-
-  private handleApiError(error: AxiosError): void {
+  private handleApiError(error: AxiosError): never {
     const status = error.response?.status;
-    const message =
-      (error.response?.data as { message?: string })?.message || error.message;
+    const data = error.response?.data as
+      { message?: string; errorMessage?: string } | undefined;
+    const message = data?.errorMessage || data?.message || error.message;
 
     switch (status) {
       case 400:
@@ -407,13 +324,37 @@ export class GarminAdapter implements ProviderAdapter {
       case 401:
         throw new Error('Garmin access token invalid or expired');
       case 403:
-        throw new Error('Not allowed to create/update workout');
+        throw new Error(`Garmin refused the request: ${message}`);
       case 412:
-        throw new Error('User has not granted WORKOUT_IMPORT permission');
+        throw new Error(
+          'The athlete has not allowed workout imports in Garmin Connect',
+        );
       case 429:
-        throw new Error('Rate limit exceeded. Please try again later');
+        throw new ProviderRateLimitError('Garmin');
       default:
-        throw new Error(`Garmin API error: ${message}`);
+        throw new Error(
+          `Garmin API error (${status ?? 'network'}): ${message}`,
+        );
     }
   }
+}
+
+function authHeaders(accessToken: string) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+function numericId(id?: string | null): string | null {
+  return id && /^\d+$/.test(id) ? id : null;
+}
+
+function countSteps(steps: GarminStep[]): number {
+  return steps.reduce(
+    (count, step) =>
+      count +
+      (step.type === 'WorkoutRepeatStep' ? 1 + countSteps(step.steps) : 1),
+    0,
+  );
 }

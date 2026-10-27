@@ -30,6 +30,10 @@ async function bootstrap() {
     }),
   );
 
+  // Garmin's production review requires accepting notification bodies of
+  // at least 10 MB; Express defaults to 100 KB
+  app.useBodyParser('json', { limit: '10mb' });
+
   const configService = app.get(ConfigService<ApiEnvSchemaType, true>);
 
   // Only trust X-Forwarded-For from proxies on private networks (Traefik,

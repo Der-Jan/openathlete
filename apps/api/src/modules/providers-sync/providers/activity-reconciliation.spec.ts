@@ -9,7 +9,11 @@ jest.mock('../../core/helpers/activity-file-parser.service', () => ({
 }));
 
 describe('provider reconciliation wiring', () => {
-  const account = { athleteId: 42, providerAccountId: 7 } as ProviderAccount;
+  const account = {
+    athleteId: 42,
+    providerAccountId: 7,
+    importActivitiesEnabled: true,
+  } as ProviderAccount;
   const activity = {
     externalId: '123',
     name: 'Recorded run',
@@ -38,6 +42,7 @@ describe('provider reconciliation wiring', () => {
     };
     const reconciliation = {
       findSource: jest.fn().mockResolvedValue(null),
+      markDispatched: jest.fn(),
       reconcile: jest.fn().mockResolvedValue({
         activity: { eventActivityId: 9, eventId: 10 },
         created: false,
@@ -54,20 +59,21 @@ describe('provider reconciliation wiring', () => {
       {} as never,
       reconciliation as unknown as ActivityReconciliationService,
     );
+    const parser = {
+      parseByFileType: jest.fn().mockResolvedValue({
+        stream: { time: [0, 1], heartrate: [120, 121] },
+        segments: [{ startTimeSeconds: 0, endTimeSeconds: 1, name: 'Lap' }],
+      }),
+    };
+    const queue = { addActivityProcessingJob: jest.fn() };
     const garmin = new GarminProviderService(
       prisma as never,
       config as never,
-      {} as never,
-      {} as never,
+      queue as never,
+      parser as never,
       reconciliation as unknown as ActivityReconciliationService,
     );
-    jest
-      .spyOn(
-        garmin as unknown as { getPendingFile: () => Promise<unknown> },
-        'getPendingFile',
-      )
-      .mockResolvedValue(null);
-    return { prisma, reconciliation, strava, garmin };
+    return { prisma, reconciliation, strava, garmin, parser, queue };
   }
 
   it('fetches Strava streams then reconciles, without creating a provisional activity', async () => {
@@ -139,4 +145,116 @@ describe('provider reconciliation wiring', () => {
       expect(setupResult.reconciliation.reconcile).not.toHaveBeenCalled();
     },
   );
+  function recording() {
+    return {
+      name: activity.name,
+      startDate: activity.startDate.toISOString(),
+      endDate: activity.endDate.toISOString(),
+      values: { sport: 'RUNNING', distance: 10000 },
+      stream: { time: [0, 1], heartrate: [100, 101] },
+      original: true,
+      recordingKind: 'single',
+    };
+  }
+
+  it('reconciles manual Garmin updates while retaining the recorded file channels', async () => {
+    const { garmin, reconciliation } = setup();
+    reconciliation.findSource.mockResolvedValue({ payload: recording() });
+    await garmin.importActivity(account, activity, true);
+    expect(reconciliation.reconcile).toHaveBeenCalledWith(
+      42,
+      'GARMIN',
+      '123',
+      expect.objectContaining({
+        stream: recording().stream,
+        values: expect.objectContaining({ distance: 10000 }),
+      }),
+    );
+  });
+
+  it.each([false, true])(
+    'answers a file notification and reconciles its stored source (pending review: %s)',
+    async (review) => {
+      const { garmin, reconciliation, queue } = setup();
+      reconciliation.findSource.mockResolvedValue({
+        payload: recording(),
+        eventActivityId: review ? null : 9,
+      });
+      if (review)
+        reconciliation.reconcile.mockResolvedValue({
+          activity: null,
+          created: false,
+          receiptId: 8,
+          revision: 2,
+          processingPending: false,
+        });
+      const pull = jest
+        .spyOn(garmin as never, 'pullCallback')
+        .mockResolvedValue(new ArrayBuffer(1) as never);
+      await (
+        garmin as unknown as {
+          processActivityFile: (
+            notification: unknown,
+            account: ProviderAccount,
+            last: boolean,
+          ) => Promise<void>;
+        }
+      ).processActivityFile(
+        {
+          callbackURL: 'https://apis.garmin.com/file?token=example',
+          entry: { activityId: '123', fileType: 'FIT' },
+        },
+        account,
+        false,
+      );
+      expect(pull).toHaveBeenCalledTimes(1);
+      expect(reconciliation.reconcile).toHaveBeenCalledWith(
+        42,
+        'GARMIN',
+        '123',
+        expect.objectContaining({
+          stream: { time: [0, 1], heartrate: [120, 121] },
+          laps: [
+            {
+              startDate: activity.startDate.toISOString(),
+              endDate: '2026-10-20T08:00:01.000Z',
+              name: 'Lap',
+            },
+          ],
+        }),
+      );
+      if (review) expect(queue.addActivityProcessingJob).not.toHaveBeenCalled();
+      else expect(reconciliation.markDispatched).toHaveBeenCalledWith(8, 1);
+    },
+  );
+
+  it('answers ignored-source file notifications without reopening review or creating an activity', async () => {
+    const { garmin, reconciliation, parser } = setup();
+    reconciliation.findSource.mockResolvedValue({
+      eventActivityId: null,
+      reviewDecision: { action: 'ignore' },
+    });
+    const pull = jest
+      .spyOn(garmin as never, 'pullCallback')
+      .mockResolvedValue(new ArrayBuffer(1) as never);
+    await (
+      garmin as unknown as {
+        processActivityFile: (
+          notification: unknown,
+          account: ProviderAccount,
+          last: boolean,
+        ) => Promise<void>;
+      }
+    ).processActivityFile(
+      {
+        callbackURL: 'https://apis.garmin.com/file?token=example',
+        entry: { activityId: '123', fileType: 'FIT' },
+      },
+      account,
+      false,
+    );
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(parser.parseByFileType).not.toHaveBeenCalled();
+    expect(reconciliation.reconcile).not.toHaveBeenCalled();
+  });
 });

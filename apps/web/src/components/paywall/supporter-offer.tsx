@@ -279,10 +279,22 @@ function AppStoreSupporterOffer({ analyticsSource, className }: OfferProps) {
         >
           {purchase.isPending ? m.loading() : m.supporter_cta()}
         </Button>
-        {prices.isError && (
-          <p className="text-center text-xs text-destructive">
-            {m.app_store_products_unavailable()}
-          </p>
+        {/* StoreKit answers without products when they are not set up for
+            this storefront: say so instead of showing "…" forever */}
+        {(prices.isError || (prices.isSuccess && !prices.data[interval])) && (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <p className="text-xs text-destructive">
+              {m.app_store_products_unavailable()}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => prices.refetch()}
+              disabled={prices.isFetching}
+            >
+              {m.app_store_retry()}
+            </Button>
+          </div>
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">
           {m.app_store_subscription_terms()}

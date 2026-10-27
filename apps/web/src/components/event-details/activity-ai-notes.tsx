@@ -1,4 +1,4 @@
-import { useAiAccessQuery } from '@/api/ai-settings';
+import { athleteAiTaskUsable, useAiAccessQuery } from '@/api/ai-settings';
 import { SparklesIcon } from '@/components/ui/sparkles-icon';
 import { m } from '@/paraglide/messages';
 import { getPainScoreColor } from '@/utils/color';
@@ -25,8 +25,9 @@ export function ActivityAiNotes({ event }: P) {
   const injuries = event.extractedInjuries ?? [];
 
   if (!answered) return null;
-  // Without AI for the analysis it never runs: no "reading" forever
-  if (!analysed && !aiAccess?.tasks[AiTask.FEEDBACK_EXTRACTION].available) {
+  // Without AI for the analysis, or the athlete's permission to send it
+  // their answers, it never runs: no "reading" forever
+  if (!analysed && !athleteAiTaskUsable(aiAccess, AiTask.FEEDBACK_EXTRACTION)) {
     return null;
   }
 

@@ -6,7 +6,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  OnModuleInit,
+  OnModuleDestroy,
   forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -15,13 +15,13 @@ import {
   ConnectorProvider,
   EventActivity,
   MetricType,
-  Prisma,
   ProviderAccount,
 } from '@openathlete/database';
-import { ActivityStream, ApiEnvSchemaType } from '@openathlete/shared';
+import { ApiEnvSchemaType } from '@openathlete/shared';
 
 import { ActivityFileParserService } from '../../core/helpers/activity-file-parser.service';
 import { ActivityRecording } from '../../core/helpers/activity-recording';
+import { buildFitActivityDetails } from '../../core/helpers/fit-activity-details';
 import { mapGarminActivityType } from '../../core/helpers/garmin';
 import {
   roundCadence,
@@ -33,28 +33,27 @@ import {
   roundSpeed,
 } from '../../core/helpers/round-activity-values';
 import { ActivityReconciliationService } from '../../core/services/activity-reconciliation.service';
-import {
-  GarminActivityFilePingWebhook,
-  GarminActivityPingWebhook,
+import type {
+  GarminActivityFileNotification,
   GarminActivitySummary,
   GarminBloodPressureSummary,
   GarminBodyCompositionSummary,
   GarminDailySummary,
-  GarminDeregistrationWebhook,
-  GarminHealthPingPayload,
+  GarminDeregistration,
   GarminHealthSnapshotSummary,
-  GarminHealthSummaryType,
   GarminHrvSummary,
   GarminPulseOxSummary,
   GarminRespirationSummary,
   GarminSkinTempSummary,
   GarminSleepSummary,
-  GarminStressDetailsSummary,
   GarminUserMetricsSummary,
-  GarminUserPermissionsChangeWebhook,
+  GarminUserPermissionsChange,
 } from '../../core/types/connector';
 import { PrismaService } from '../../prisma/services/prisma.service';
-import { QueueService } from '../../queue/queue.service';
+import {
+  GarminNotificationJobData,
+  QueueService,
+} from '../../queue/queue.service';
 import {
   BaseProviderService,
   FullImportResult,
@@ -62,59 +61,181 @@ import {
   OAuthTokenResponse,
 } from '../base';
 import {
-  ImportOptions,
   ImportResult,
   ImportedActivity,
   ProviderImportCapability,
 } from '../base';
 import { providerRedirectUri } from '../base/provider-urls';
+import {
+  GarminDailyPartial,
+  GarminMetricRecord,
+  aggregateGarminPartials,
+  garminPulseOxPartials,
+  garminRespirationPartials,
+  mapGarminBloodPressures,
+  mapGarminBodyComps,
+  mapGarminDailies,
+  mapGarminHealthSnapshots,
+  mapGarminHrv,
+  mapGarminSkinTemps,
+  mapGarminSleeps,
+  mapGarminUserMetrics,
+} from '../mapping/garmin-health.mapper';
 
-type MetricRecord = {
-  type: MetricType;
-  date: Date;
-  value: number;
-};
+const GARMIN_API_HOST = 'apis.garmin.com';
+const GARMIN_USER_API = `https://${GARMIN_API_HOST}/partner-gateway/rest/user`;
 
-const GARMIN_CALLBACK_HOST = 'apis.garmin.com';
+/** Permissions a Garmin user grants, stored in `scopes` with this prefix */
+const PERMISSIONS_PREFIX = 'permissions:';
+
+/** Activity summary types: both carry activity summaries */
+const ACTIVITY_SUMMARY_TYPES = new Set([
+  'activities',
+  'manuallyUpdatedActivities',
+]);
+
+/**
+ * Summary types that are answered (pulled) without being saved: epochs are
+ * already aggregated in dailies, activity details duplicate the activity
+ * file, and Move IQ events are not workouts. Their pushed data is dropped
+ * before queueing, as it can weigh megabytes.
+ */
+const ANSWER_ONLY_TYPES = new Set([
+  'epochs',
+  'activityDetails',
+  'moveIQActivities',
+  'stressDetails',
+  'mct',
+]);
+
+/** Daily partials stay long enough for Garmin's late updates */
+const DAILY_PARTIALS_TTL_SECONDS = 14 * 24 * 3600;
+
+interface Summary {
+  [field: string]: unknown;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function parseGarminPermissions(
+  scopes?: string | null,
+): string[] | null {
+  if (!scopes?.startsWith(PERMISSIONS_PREFIX)) return null;
+  return scopes.slice(PERMISSIONS_PREFIX.length).split(' ').filter(Boolean);
+}
+
+export function formatGarminPermissions(permissions: string[]): string {
+  return `${PERMISSIONS_PREFIX}${permissions.join(' ')}`;
+}
+
+/**
+ * Splits a Garmin webhook body into one job per entry. Garmin sends every
+ * summary type to its configured URL, as `{ "<summaryType>": [entries] }`,
+ * with a callback URL (ping) or the data itself (push).
+ */
+export function parseGarminNotifications(
+  body: unknown,
+): GarminNotificationJobData[] {
+  if (!isObject(body)) return [];
+  const notifications: GarminNotificationJobData[] = [];
+  for (const [summaryType, entries] of Object.entries(body)) {
+    if (
+      !Array.isArray(entries) ||
+      summaryType === 'deregistrations' ||
+      summaryType === 'userPermissionsChange'
+    ) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!isObject(entry) || typeof entry.userId !== 'string') continue;
+      const callbackURL =
+        typeof entry.callbackURL === 'string' ? entry.callbackURL : undefined;
+      notifications.push({
+        summaryType,
+        userId: entry.userId,
+        callbackURL,
+        entry: callbackURL || !ANSWER_ONLY_TYPES.has(summaryType) ? entry : {},
+      });
+    }
+  }
+  return notifications;
+}
+
+/** Garmin activity summary to the activity the import job saves */
+export function toImportedGarminActivity(
+  activity: GarminActivitySummary,
+): ImportedActivity | null {
+  const externalId = activity.activityId ?? activity.summaryId;
+  if (
+    externalId === undefined ||
+    externalId === null ||
+    !Number.isFinite(activity.startTimeInSeconds)
+  ) {
+    return null;
+  }
+  // Timestamps are UTC; startTimeOffsetInSeconds only gives the device's
+  // local time, which the app derives from the athlete's time zone
+  const startDate = new Date(activity.startTimeInSeconds * 1000);
+  return {
+    externalId: String(externalId),
+    name: activity.activityName || '',
+    startDate,
+    endDate: new Date(
+      startDate.getTime() + (activity.durationInSeconds ?? 0) * 1000,
+    ),
+    sport: mapGarminActivityType(activity.activityType),
+    distance: activity.distanceInMeters,
+    duration: activity.durationInSeconds,
+    raw: activity,
+  };
+}
+
+function activityMetrics(summary: GarminActivitySummary) {
+  const cadence =
+    summary.averageBikeCadenceInRoundsPerMinute ??
+    summary.averageRunCadenceInStepsPerMinute ??
+    summary.averageSwimCadenceInStrokesPerMinute;
+  return {
+    distance: roundDistance(summary.distanceInMeters || 0),
+    elevationGain: roundElevation(summary.totalElevationGainInMeters || 0),
+    movingTime: summary.durationInSeconds ?? 0,
+    averageSpeed: roundSpeed(summary.averageSpeedInMetersPerSecond || 0) ?? 0,
+    maxSpeed: roundSpeed(summary.maxSpeedInMetersPerSecond || 0) ?? 0,
+    averageCadence:
+      cadence === undefined ? undefined : (roundCadence(cadence) ?? undefined),
+    averageHeartrate: roundHeartrate(summary.averageHeartRateInBeatsPerMinute),
+    maxHeartrate: roundHeartrate(summary.maxHeartRateInBeatsPerMinute),
+    kilojoules: summary.activeKilocalories
+      ? roundEnergy(summary.activeKilocalories * 4.184)
+      : undefined,
+    sport: mapGarminActivityType(summary.activityType),
+  };
+}
 
 @Injectable()
 export class GarminProviderService
   extends BaseProviderService
-  implements ProviderImportCapability, OnModuleInit
+  implements ProviderImportCapability, OnModuleDestroy
 {
   protected readonly provider = ConnectorProvider.GARMIN;
-  private readonly importWindowMs = 30 * 24 * 60 * 60 * 1000;
+  private readonly backfillWindowMs = 30 * 24 * 60 * 60 * 1000;
+  private redis: Redis | null = null;
 
-  private getSafeGarminCallbackUrl(callbackURL: string): string {
-    let url: URL;
-    try {
-      url = new URL(callbackURL);
-    } catch {
-      throw new BadRequestException('Invalid Garmin callbackURL');
-    }
+  constructor(
+    prisma: PrismaService,
+    configService: ConfigService<ApiEnvSchemaType, true>,
+    @Inject(forwardRef(() => QueueService))
+    private readonly queueService: QueueService,
+    private readonly activityFileParserService: ActivityFileParserService,
+    private readonly reconciliation: ActivityReconciliationService,
+  ) {
+    super(prisma, configService);
+  }
 
-    if (url.protocol !== 'https:') {
-      throw new BadRequestException('Invalid Garmin callbackURL');
-    }
-
-    // Disallow credentials in URL (userinfo).
-    if (url.username || url.password) {
-      throw new BadRequestException('Invalid Garmin callbackURL');
-    }
-
-    // Only allow default HTTPS port (or explicitly 443).
-    if (url.port && url.port !== '443') {
-      throw new BadRequestException('Invalid Garmin callbackURL');
-    }
-
-    // Callback URLs come from unauthenticated webhook payloads and are fetched
-    // with the user's Garmin access token: only ever send it to Garmin.
-    if (url.hostname !== GARMIN_CALLBACK_HOST) {
-      throw new BadRequestException('Invalid Garmin callbackURL');
-    }
-
-    // Rebuild from a constant origin so the request host never comes from input.
-    return `https://${GARMIN_CALLBACK_HOST}/${url.pathname.slice(1)}${url.search}`;
+  async onModuleDestroy() {
+    await this.redis?.quit().catch(() => undefined);
   }
 
   protected get oauthConfig(): OAuthConfig {
@@ -132,56 +253,32 @@ export class GarminProviderService
     };
   }
 
-  private redis: Redis | null = null;
-
-  constructor(
-    prisma: PrismaService,
-    configService: ConfigService<ApiEnvSchemaType, true>,
-    @Inject(forwardRef(() => QueueService))
-    private readonly queueService: QueueService,
-    private readonly activityFileParserService: ActivityFileParserService,
-    private readonly reconciliation: ActivityReconciliationService,
-  ) {
-    super(prisma, configService);
-  }
-
-  async onModuleInit() {
-    await this.initRedis();
-  }
-
-  private async initRedis() {
-    try {
+  private getRedis(): Redis {
+    if (!this.redis) {
       const redisUrl = this.configService.get('REDIS_URL');
-      if (!redisUrl) {
-        this.redis = new Redis({
-          host: 'localhost',
-          port: 6379,
-          maxRetriesPerRequest: null,
-        });
-      } else {
-        this.redis = new Redis(redisUrl, {
-          maxRetriesPerRequest: null,
-        });
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to initialize Redis: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      this.redis = null;
+      this.redis = redisUrl
+        ? new Redis(redisUrl, { maxRetriesPerRequest: null })
+        : new Redis({
+            host: 'localhost',
+            port: 6379,
+            maxRetriesPerRequest: null,
+          });
     }
+    return this.redis;
   }
 
-  private generatePKCE(): { verifier: string; challenge: string } {
-    const verifier = randomBytes(32).toString('base64url');
-    const challenge = createHash('sha256').update(verifier).digest('base64url');
-    return { verifier, challenge };
-  }
+  // ---------------------------------------------------------------------------
+  // OAuth 2.0 with PKCE
+  // ---------------------------------------------------------------------------
 
   getAuthorizationUriWithPKCE(state?: string): {
     uri: string;
     codeVerifier: string;
   } {
-    const { verifier, challenge } = this.generatePKCE();
+    const codeVerifier = randomBytes(32).toString('base64url');
+    const challenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: this.oauthConfig.clientId,
@@ -194,23 +291,12 @@ export class GarminProviderService
     });
     return {
       uri: `${this.oauthConfig.authorizationUrl}?${params.toString()}`,
-      codeVerifier: verifier,
+      codeVerifier,
     };
   }
 
   override getAuthorizationUri(state?: string): string {
-    const { challenge } = this.generatePKCE();
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: this.oauthConfig.clientId,
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-      ...(this.oauthConfig.redirectUri && {
-        redirect_uri: this.oauthConfig.redirectUri,
-      }),
-      ...(state && { state }),
-    });
-    return `${this.oauthConfig.authorizationUrl}?${params.toString()}`;
+    return this.getAuthorizationUriWithPKCE(state).uri;
   }
 
   override async exchangeCodeForTokens(
@@ -218,127 +304,56 @@ export class GarminProviderService
     codeVerifier?: string,
   ): Promise<OAuthTokenResponse> {
     if (!codeVerifier) {
-      throw new Error(
+      throw new BadRequestException(
         'PKCE code_verifier is required for Garmin OAuth token exchange',
       );
     }
-
-    const params = new URLSearchParams({
+    return this.requestToken({
       grant_type: 'authorization_code',
-      client_id: this.oauthConfig.clientId,
-      client_secret: this.oauthConfig.clientSecret,
       code,
       code_verifier: codeVerifier,
       ...(this.oauthConfig.redirectUri && {
         redirect_uri: this.oauthConfig.redirectUri,
       }),
     });
-
-    const { data } = await axios.post<OAuthTokenResponse>(
-      this.oauthConfig.tokenUrl,
-      params.toString(),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      },
-    );
-
-    return data;
   }
 
   override async refreshAccessToken(
     refreshToken: string,
   ): Promise<OAuthTokenResponse> {
-    const params = new URLSearchParams({
+    return this.requestToken({
       grant_type: 'refresh_token',
-      client_id: this.oauthConfig.clientId,
-      client_secret: this.oauthConfig.clientSecret,
       refresh_token: refreshToken,
     });
+  }
 
+  private async requestToken(
+    params: Record<string, string>,
+  ): Promise<OAuthTokenResponse> {
     const { data } = await axios.post<OAuthTokenResponse>(
       this.oauthConfig.tokenUrl,
-      params.toString(),
+      new URLSearchParams({
+        client_id: this.oauthConfig.clientId,
+        client_secret: this.oauthConfig.clientSecret,
+        ...params,
+      }).toString(),
       {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 15000,
       },
     );
-
     return data;
   }
 
-  async getUserId(accessToken: string): Promise<string> {
-    try {
-      const { data } = await axios.get<{ userId: string }>(
-        'https://apis.garmin.com/wellness-api/rest/user/id',
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
-      return data.userId;
-    } catch (error) {
-      if (
-        isAxiosError(error) &&
-        (error.response?.status === 404 ||
-          error.response?.data?.errorType === 'partner_registration_not_found')
-      ) {
-        return '';
-      }
-      throw error;
-    }
-  }
-
-  async getUserPermissions(accessToken: string): Promise<string[]> {
-    try {
-      const { data } = await axios.get<unknown>(
-        'https://apis.garmin.com/wellness-api/rest/user/permissions',
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
-
-      if (Array.isArray(data)) {
-        return data;
-      }
-
-      if (
-        typeof data === 'object' &&
-        data !== null &&
-        'permissions' in data &&
-        Array.isArray((data as { permissions: unknown }).permissions)
-      ) {
-        return (data as { permissions: string[] }).permissions;
-      }
-
-      return [];
-    } catch (error) {
-      if (
-        isAxiosError(error) &&
-        (error.response?.status === 404 ||
-          error.response?.data?.errorType === 'partner_registration_not_found')
-      ) {
-        return [];
-      }
-      throw error;
-    }
-  }
-
-  async deleteUserRegistration(accessToken: string): Promise<void> {
-    await axios.delete(
-      'https://apis.garmin.com/wellness-api/rest/user/registration',
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
+  /**
+   * Garmin access tokens last 24 hours. They are refreshed ten minutes early,
+   * so a request never fails on an expired token: a 401 followed by a retry
+   * would count as an extra, unprompted pull.
+   */
+  private expiryFromNow(expiresIn?: number): Date | null {
+    return expiresIn
+      ? new Date(Date.now() + Math.max(0, expiresIn - 600) * 1000)
+      : null;
   }
 
   override async saveProviderAccount(params: {
@@ -349,66 +364,159 @@ export class GarminProviderService
     scopes?: string;
     externalUserId?: string;
   }): Promise<ProviderAccount> {
-    const adjustedExpiresIn = params.expiresIn
-      ? Math.max(0, params.expiresIn - 600)
-      : undefined;
-
     return super.saveProviderAccount({
       ...params,
-      expiresIn: adjustedExpiresIn,
+      expiresIn: params.expiresIn
+        ? Math.max(0, params.expiresIn - 600)
+        : undefined,
     });
   }
-
-  /**
-   * Safety buffer in ms applied on top of the stored `expiresAt` so we refresh
-   * BEFORE Garmin actually rejects the token with 401. Combined with the 600s
-   * subtracted in `saveProviderAccount`, this avoids the "401 -> retry" pattern
-   * that Garmin counts as a duplicate (and "unprompted") pull.
-   */
-  private readonly tokenRefreshSafetyMs = 60_000;
 
   override async getValidAccessToken(
     account: ProviderAccount,
   ): Promise<string> {
-    const refreshDeadline = account.expiresAt
-      ? account.expiresAt.getTime() - this.tokenRefreshSafetyMs
-      : 0;
-
     if (
       account.accessToken &&
       account.expiresAt &&
-      Date.now() < refreshDeadline
+      Date.now() < account.expiresAt.getTime() - 60_000
     ) {
       return account.accessToken;
     }
 
-    if (!account.refreshToken) {
+    // Another job may have refreshed it meanwhile: Garmin rotates refresh
+    // tokens, so refreshing again with the old one would fail
+    const stored = await this.prisma.providerAccount.findUnique({
+      where: { providerAccountId: account.providerAccountId },
+    });
+    if (
+      stored?.accessToken &&
+      stored.expiresAt &&
+      Date.now() < stored.expiresAt.getTime() - 60_000
+    ) {
+      Object.assign(account, stored);
+      return stored.accessToken;
+    }
+
+    const refreshToken = stored?.refreshToken ?? account.refreshToken;
+    if (!refreshToken) {
       throw new Error(`No refresh token available for ${this.provider}`);
     }
 
-    const tokenResponse = await this.refreshAccessToken(account.refreshToken);
-    const expiresAt = tokenResponse.expires_in
-      ? new Date(Date.now() + (tokenResponse.expires_in - 600) * 1000)
-      : null;
-
+    const tokenResponse = await this.refreshAccessToken(refreshToken);
     const updated = await this.prisma.providerAccount.update({
-      where: {
-        providerAccountId: account.providerAccountId,
-      },
+      where: { providerAccountId: account.providerAccountId },
       data: {
         accessToken: tokenResponse.access_token,
-        refreshToken: tokenResponse.refresh_token ?? account.refreshToken,
-        expiresAt: expiresAt,
+        refreshToken: tokenResponse.refresh_token ?? refreshToken,
+        expiresAt: this.expiryFromNow(tokenResponse.expires_in),
       },
     });
-
-    // Keep the in-memory account object in sync so callers don't reuse stale
-    // values for subsequent calls in the same logical operation.
-    account.accessToken = updated.accessToken;
-    account.refreshToken = updated.refreshToken;
-    account.expiresAt = updated.expiresAt;
-
+    Object.assign(account, updated);
     return tokenResponse.access_token;
+  }
+
+  // ---------------------------------------------------------------------------
+  // User endpoints
+  // ---------------------------------------------------------------------------
+
+  async getUserId(accessToken: string): Promise<string | null> {
+    try {
+      const { data } = await axios.get<{ userId?: string }>(
+        `${GARMIN_USER_API}/id`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 15000,
+        },
+      );
+      return data.userId || null;
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async getUserPermissions(accessToken: string): Promise<string[]> {
+    const { data } = await axios.get<unknown>(
+      `${GARMIN_USER_API}/permissions`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 15000,
+      },
+    );
+    if (Array.isArray(data)) {
+      return data.filter((item): item is string => typeof item === 'string');
+    }
+    if (isObject(data) && Array.isArray(data.permissions)) {
+      return data.permissions.filter(
+        (item): item is string => typeof item === 'string',
+      );
+    }
+    return [];
+  }
+
+  /**
+   * The user's Garmin permissions. They are stored at connection and kept
+   * up to date by the user permissions webhook, so exports don't spend an
+   * API call on them each time.
+   */
+  async getAccountPermissions(account: ProviderAccount): Promise<string[]> {
+    const stored = parseGarminPermissions(account.scopes);
+    if (stored) return stored;
+
+    const permissions = await this.getUserPermissions(
+      await this.getValidAccessToken(account),
+    );
+    await this.prisma.providerAccount.update({
+      where: { providerAccountId: account.providerAccountId },
+      data: { scopes: formatGarminPermissions(permissions) },
+    });
+    account.scopes = formatGarminPermissions(permissions);
+    return permissions;
+  }
+
+  /**
+   * Removes the user's registration, so Garmin stops sending their data.
+   * Garmin requires it whenever the user disconnects or deletes their
+   * account here.
+   */
+  async deleteUserRegistration(account: ProviderAccount): Promise<void> {
+    const accessToken = await this.getValidAccessToken(account);
+    try {
+      await axios.delete(`${GARMIN_USER_API}/registration`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 15000,
+      });
+    } catch (error) {
+      // Already deregistered
+      if (isAxiosError(error) && error.response?.status === 404) return;
+      throw error;
+    }
+  }
+
+  /** Disconnects the account here and at Garmin, and forgets its tokens. */
+  async disconnect(account: ProviderAccount): Promise<void> {
+    try {
+      await this.deleteUserRegistration(account);
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete Garmin user registration for account ${account.providerAccountId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await this.revokeLocally(account.providerAccountId);
+  }
+
+  private revokeLocally(providerAccountId: number) {
+    return this.prisma.providerAccount.update({
+      where: { providerAccountId },
+      data: {
+        status: 'revoked',
+        accessToken: '',
+        refreshToken: null,
+        expiresAt: null,
+      },
+    });
   }
 
   async connect(
@@ -417,334 +525,356 @@ export class GarminProviderService
     athleteId: number,
   ): Promise<ProviderAccount> {
     const tokenResponse = await this.exchangeCodeForTokens(code, codeVerifier);
-    const userId = await this.getUserId(tokenResponse.access_token);
 
-    const account = await this.saveProviderAccount({
+    // Notifications only name the Garmin user id: without it none of this
+    // user's data could be matched to the athlete
+    const userId = await this.getUserId(tokenResponse.access_token);
+    if (!userId) {
+      throw new BadRequestException(
+        'Garmin did not complete the authorization. Please connect again.',
+      );
+    }
+
+    let permissions: string[] | null = null;
+    try {
+      permissions = await this.getUserPermissions(tokenResponse.access_token);
+    } catch (error) {
+      this.logger.warn(
+        `Could not read Garmin permissions at connection: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // A Garmin user connected to another athlete moves here: notifications
+    // would otherwise be matched to whichever account was found first
+    await this.prisma.providerAccount.updateMany({
+      where: {
+        provider: ConnectorProvider.GARMIN,
+        externalUserId: userId,
+        athleteId: { not: athleteId },
+        status: 'active',
+      },
+      data: { status: 'revoked', accessToken: '', refreshToken: null },
+    });
+
+    return this.saveProviderAccount({
       athleteId,
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token || '',
       expiresIn: tokenResponse.expires_in,
-      scopes: tokenResponse.scope,
+      scopes: permissions ? formatGarminPermissions(permissions) : undefined,
       externalUserId: userId,
     });
-
-    return account;
   }
 
-  private async isUserRegistrationComplete(
-    account: ProviderAccount,
-  ): Promise<boolean> {
-    try {
-      const accessToken = await this.getValidAccessToken(account);
-      const userId = await this.getUserId(accessToken);
-      return !!userId;
-    } catch {
-      return false;
-    }
-  }
-
-  private async hasActivityExportPermission(
-    account: ProviderAccount,
-  ): Promise<boolean | null> {
-    try {
-      const accessToken = await this.getValidAccessToken(account);
-      const permissions = await this.getUserPermissions(accessToken);
-      if (!Array.isArray(permissions) || permissions.length === 0) {
-        return null;
-      }
-      return permissions.includes('ACTIVITY_EXPORT');
-    } catch {
-      return null;
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Historical import
+  // ---------------------------------------------------------------------------
 
   /**
-   * Maximum number of times we will re-trigger queueFullImport when the user
-   * registration is not yet complete. Each attempt consumes API calls (one
-   * backfill request + one chunked import scan). Without a bound, a permanently
-   * incomplete registration would loop forever, multiplying "unprompted" pulls.
+   * Garmin forbids pulling data outside of its notifications. History comes
+   * from a backfill request: Garmin then sends the past activities through
+   * the usual pings.
    */
-  private static readonly MAX_FULL_IMPORT_REGISTRATION_RETRIES = 5;
-  private static readonly FULL_IMPORT_REGISTRATION_RETRY_DELAY_MS = 5000;
-
-  async queueFullImport(
-    account: ProviderAccount,
-    attempt = 0,
-  ): Promise<FullImportResult> {
-    const hasPermission = await this.hasActivityExportPermission(account);
-    if (hasPermission === false) {
+  async queueFullImport(account: ProviderAccount): Promise<FullImportResult> {
+    const permissions = await this.getAccountPermissions(account);
+    if (permissions.length > 0 && !permissions.includes('ACTIVITY_EXPORT')) {
       throw new BadRequestException(
-        'Garmin does not allow exporting activities for this account. Please re-authorize with activity access enabled.',
+        'Garmin does not allow exporting activities for this account. Please allow activity sharing in Garmin Connect.',
       );
     }
 
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - this.importWindowMs);
-
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - Math.floor(this.backfillWindowMs / 1000);
+    const accessToken = await this.getValidAccessToken(account);
     try {
-      const accessToken = await this.getValidAccessToken(account);
-      const summaryStartTime = Math.floor(startDate.getTime() / 1000);
-      const summaryEndTime = Math.floor(endDate.getTime() / 1000);
-
-      const response = await axios.get(
-        'https://apis.garmin.com/wellness-api/rest/backfill/activities',
+      await axios.get(
+        `https://${GARMIN_API_HOST}/wellness-api/rest/backfill/activities`,
         {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+          headers: { Authorization: `Bearer ${accessToken}` },
           params: {
-            summaryStartTimeInSeconds: summaryStartTime,
-            summaryEndTimeInSeconds: summaryEndTime,
+            summaryStartTimeInSeconds: start,
+            summaryEndTimeInSeconds: end,
           },
           timeout: 15000,
         },
       );
-      if (response.status === 202) {
-        return {
-          queuedActivities: 0, // Will be processed via ping/push notifications
-          backfillRequested: true,
-        };
-      }
-
-      throw new Error(
-        `Unexpected backfill response status: ${response.status}`,
-      );
     } catch (error) {
-      this.logger.warn(
-        `Garmin backfill request failed for account ${account.providerAccountId} (attempt ${attempt + 1}): ${error instanceof Error ? error.message : String(error)}; falling back to chunked import`,
-      );
-
-      const activities = await this.importActivities(account, {
-        startDate,
-        endDate,
-      });
-
-      if (activities.length === 0) {
-        const isComplete = await this.isUserRegistrationComplete(account);
-        if (!isComplete) {
-          if (
-            attempt + 1 >=
-            GarminProviderService.MAX_FULL_IMPORT_REGISTRATION_RETRIES
-          ) {
-            this.logger.warn(
-              `Garmin user registration still incomplete after ${
-                GarminProviderService.MAX_FULL_IMPORT_REGISTRATION_RETRIES
-              } attempts for account ${account.providerAccountId}; giving up`,
-            );
-            return { queuedActivities: 0 };
-          }
-
-          setTimeout(() => {
-            this.queueFullImport(account, attempt + 1).catch((err) => {
-              this.logger.error(
-                `Garmin queueFullImport retry failed for account ${account.providerAccountId}: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            });
-          }, GarminProviderService.FULL_IMPORT_REGISTRATION_RETRY_DELAY_MS);
-          return { queuedActivities: 0 };
-        }
+      // The same range was already requested: its activities are on the way
+      if (isAxiosError(error) && error.response?.status === 409) {
+        return { queuedActivities: 0, backfillRequested: true };
       }
-
-      const queued = await this.enqueueActivities(account, activities);
-
-      return {
-        queuedActivities: queued,
-        backfillRequested: false,
-      };
+      throw error;
     }
+    return { queuedActivities: 0, backfillRequested: true };
   }
 
-  private async makeAuthenticatedRequest<T>(
-    account: ProviderAccount,
-    requestFn: (accessToken: string) => Promise<T>,
-  ): Promise<T> {
-    // Always go through getValidAccessToken which now refreshes proactively
-    // using a 60s safety buffer. This makes the 401 path a true exception
-    // rather than the common case.
-    const accessToken = await this.getValidAccessToken(account);
+  /** Not used: Garmin only allows pulls answering its notifications. */
+  async importActivities(): Promise<ImportedActivity[]> {
+    return [];
+  }
 
-    try {
-      return await requestFn(accessToken);
-    } catch (error) {
-      if (
-        !isAxiosError(error) ||
-        error.response?.status !== 401 ||
-        !account.refreshToken
-      ) {
-        throw error;
-      }
+  // ---------------------------------------------------------------------------
+  // Notifications
+  // ---------------------------------------------------------------------------
 
-      // 401 despite a fresh-looking token. Force a refresh and retry exactly
-      // ONCE. Each retry is one extra GET against the Garmin endpoint, which
-      // Garmin counts as an "unprompted pull" if the original ping has already
-      // been associated with the first (failed) attempt. We log it so we can
-      // see how often this happens in production.
-      this.logger.warn(
-        `Garmin 401 on authenticated request for account ${account.providerAccountId}; refreshing token and retrying once (this consumes an extra "pull" from Garmin's quota)`,
+  /**
+   * Accepts any Garmin webhook body. Deregistrations and permission changes
+   * are applied at once; data notifications are queued, so the webhook
+   * answers within Garmin's 30 seconds.
+   */
+  async handleWebhook(body: unknown): Promise<void> {
+    if (!isObject(body)) return;
+
+    if (Array.isArray(body.deregistrations)) {
+      await this.handleDeregistrations(
+        body.deregistrations as GarminDeregistration[],
       );
+    }
+    if (Array.isArray(body.userPermissionsChange)) {
+      await this.handlePermissionChanges(
+        body.userPermissionsChange as GarminUserPermissionsChange[],
+      );
+    }
+    await this.queueService.addGarminNotificationJobs(
+      parseGarminNotifications(body),
+    );
+  }
 
-      const tokenResponse = await this.refreshAccessToken(account.refreshToken);
-      const expiresAt = tokenResponse.expires_in
-        ? new Date(Date.now() + (tokenResponse.expires_in - 600) * 1000)
-        : null;
-
-      const updatedAccount = await this.prisma.providerAccount.update({
+  private async handleDeregistrations(entries: GarminDeregistration[]) {
+    for (const entry of entries) {
+      if (!entry?.userId) continue;
+      const { count } = await this.prisma.providerAccount.updateMany({
         where: {
-          providerAccountId: account.providerAccountId,
+          provider: ConnectorProvider.GARMIN,
+          externalUserId: entry.userId,
+          status: 'active',
         },
         data: {
-          accessToken: tokenResponse.access_token,
-          refreshToken: tokenResponse.refresh_token ?? account.refreshToken,
-          expiresAt: expiresAt,
+          status: 'revoked',
+          accessToken: '',
+          refreshToken: null,
+          expiresAt: null,
         },
       });
-
-      account.accessToken = updatedAccount.accessToken;
-      account.refreshToken = updatedAccount.refreshToken;
-      account.expiresAt = updatedAccount.expiresAt;
-
-      return await requestFn(tokenResponse.access_token);
-    }
-  }
-
-  async importActivities(
-    account: ProviderAccount,
-    options?: ImportOptions,
-  ): Promise<ImportedActivity[]> {
-    const hasPermission = await this.hasActivityExportPermission(account);
-    if (hasPermission === false) {
-      return [];
-    }
-
-    const limit = options?.limit ?? Number.POSITIVE_INFINITY;
-    const activities: ImportedActivity[] = [];
-
-    const endTime = options?.endDate
-      ? Math.floor(options.endDate.getTime() / 1000)
-      : Math.floor(Date.now() / 1000);
-    const startTime = options?.startDate
-      ? Math.floor(options.startDate.getTime() / 1000)
-      : endTime - 30 * 24 * 60 * 60;
-
-    if (startTime >= endTime) {
-      return [];
-    }
-
-    const chunkSize = 24 * 60 * 60;
-    let currentStart = startTime;
-
-    while (activities.length < limit && currentStart < endTime) {
-      const currentEnd = Math.min(currentStart + chunkSize, endTime);
-
-      const data = await this.makeAuthenticatedRequest<GarminActivitySummary[]>(
-        account,
-        async (accessToken) => {
-          try {
-            const response = await axios.get<GarminActivitySummary[]>(
-              'https://apis.garmin.com/wellness-api/rest/activities',
-              {
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                },
-                params: {
-                  uploadStartTimeInSeconds: currentStart,
-                  uploadEndTimeInSeconds: currentEnd,
-                },
-                timeout: 15000,
-              },
-            );
-            return response.data;
-          } catch (error) {
-            if (
-              isAxiosError(error) &&
-              (error.response?.status === 403 || error.response?.status === 400)
-            ) {
-              return [];
-            }
-            throw error;
-          }
-        },
+      this.logger.log(
+        `Garmin user ${entry.userId} deregistered (${count} account(s) revoked)`,
       );
-
-      if (data.length === 0) {
-        currentStart = currentEnd;
-        continue;
-      }
-
-      for (const activity of data) {
-        if (activities.length >= limit) break;
-
-        const startDate = new Date(activity.startTimeInSeconds * 1000);
-        const endDate = new Date(
-          startDate.getTime() + activity.durationInSeconds * 1000,
-        );
-
-        if (options?.startDate && startDate < options.startDate) continue;
-        if (options?.endDate && startDate > options.endDate) continue;
-
-        activities.push({
-          externalId: String(activity.activityId),
-          name: activity.activityName,
-          startDate,
-          endDate,
-          sport: mapGarminActivityType(activity.activityType),
-          distance: activity.distanceInMeters,
-          duration: activity.durationInSeconds,
-          raw: activity,
-        });
-      }
-
-      currentStart = currentEnd;
     }
-
-    return activities;
   }
 
-  private async enqueueActivities(
-    account: ProviderAccount,
-    activities: ImportedActivity[],
-  ): Promise<number> {
-    if (activities.length === 0) {
-      return 0;
+  private async handlePermissionChanges(
+    entries: GarminUserPermissionsChange[],
+  ) {
+    for (const entry of entries) {
+      if (!entry?.userId || !Array.isArray(entry.permissions)) continue;
+      const { count } = await this.prisma.providerAccount.updateMany({
+        where: {
+          provider: ConnectorProvider.GARMIN,
+          externalUserId: entry.userId,
+        },
+        data: { scopes: formatGarminPermissions(entry.permissions) },
+      });
+      this.logger.log(
+        `Garmin permissions of user ${entry.userId} changed to [${entry.permissions.join(', ')}] (${count} account(s))`,
+      );
+    }
+  }
+
+  private async findAccount(userId: string): Promise<ProviderAccount | null> {
+    const accounts = await this.prisma.providerAccount.findMany({
+      where: { provider: ConnectorProvider.GARMIN, externalUserId: userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return (
+      accounts.find((account) => account.status === 'active') ??
+      accounts[0] ??
+      null
+    );
+  }
+
+  /**
+   * Answers one notification. Garmin counts every ping whose callback URL is
+   * not pulled as unanswered, so it is pulled even when nothing is saved:
+   * import turned off, or a user disconnected here.
+   */
+  async processNotification(
+    notification: GarminNotificationJobData,
+    { lastAttempt }: { lastAttempt: boolean },
+  ): Promise<void> {
+    const { summaryType, userId, callbackURL } = notification;
+    const stored = await this.findAccount(userId);
+    const account = stored?.status === 'active' ? stored : null;
+
+    if (stored && !account && stored.refreshToken) {
+      // Still registered at Garmin though disconnected here (the disconnect
+      // could not reach Garmin): deregister so its data stops coming
+      await this.disconnect(stored);
     }
 
-    const existingExternalIds = await this.prisma.activitySource.findMany({
+    if (summaryType === 'activityFiles') {
+      await this.processActivityFile(notification, account, lastAttempt);
+      return;
+    }
+
+    const summaries = callbackURL
+      ? await this.pullSummaries(callbackURL, account, summaryType)
+      : [notification.entry];
+
+    if (!account) {
+      this.logger.debug(
+        `Garmin ${summaryType} notification answered for ${stored ? 'disconnected' : 'unknown'} user ${userId}; nothing saved`,
+      );
+      return;
+    }
+
+    if (ACTIVITY_SUMMARY_TYPES.has(summaryType)) {
+      await this.saveActivitySummaries(
+        account,
+        summaries as unknown as GarminActivitySummary[],
+        summaryType === 'manuallyUpdatedActivities',
+      );
+    } else if (!ANSWER_ONLY_TYPES.has(summaryType)) {
+      await this.saveHealthSummaries(account, summaryType, summaries);
+    }
+  }
+
+  private getSafeGarminCallbackUrl(callbackURL: string): string {
+    let url: URL;
+    try {
+      url = new URL(callbackURL);
+    } catch {
+      throw new BadRequestException('Invalid Garmin callbackURL');
+    }
+    // Callback URLs come from unauthenticated webhook bodies and may be
+    // fetched with the user's token: only ever send requests to Garmin
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== '443') ||
+      url.hostname !== GARMIN_API_HOST
+    ) {
+      throw new BadRequestException('Invalid Garmin callbackURL');
+    }
+    return `https://${GARMIN_API_HOST}${url.pathname}${url.search}`;
+  }
+
+  /**
+   * Pulls a callback URL as Garmin built it. Its `token` parameter
+   * authorizes the pull and ties it to the ping: a pull authorized with the
+   * user's access token instead counts as unprompted, and the ping as
+   * unanswered. The access token is only a fallback when the pull token is
+   * missing or refused.
+   */
+  private async pullCallback<T>(
+    callbackURL: string,
+    account: ProviderAccount | null,
+    responseType: 'json' | 'arraybuffer',
+  ): Promise<T> {
+    const url = this.getSafeGarminCallbackUrl(callbackURL);
+    const request = (headers: Record<string, string>) =>
+      axios.get<T>(url, {
+        headers,
+        responseType,
+        timeout: responseType === 'arraybuffer' ? 120_000 : 45_000,
+      });
+
+    if (new URL(url).searchParams.has('token') || !account) {
+      try {
+        return (await request({})).data;
+      } catch (error) {
+        const status = isAxiosError(error) ? error.response?.status : undefined;
+        if (!account || (status !== 401 && status !== 403)) throw error;
+        this.logger.warn(
+          `Garmin refused the pull token of a callback (${status}); retrying with the access token of account ${account.providerAccountId}`,
+        );
+      }
+    }
+
+    const accessToken = await this.getValidAccessToken(account);
+    return (await request({ Authorization: `Bearer ${accessToken}` })).data;
+  }
+
+  private async pullSummaries(
+    callbackURL: string,
+    account: ProviderAccount | null,
+    summaryType: string,
+  ): Promise<Summary[]> {
+    try {
+      const data = await this.pullCallback<unknown>(
+        callbackURL,
+        account,
+        'json',
+      );
+      if (Array.isArray(data)) return data.filter(isObject);
+      return isObject(data) ? [data] : [];
+    } catch (error) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      // 4xx won't change on retry: the summary type is not shared (412), the
+      // user is gone (403), the data expired (410)...
+      if (status && status >= 400 && status < 500 && status !== 429) {
+        this.logger.warn(
+          `Garmin ${summaryType} callback answered ${status}${account ? ` for account ${account.providerAccountId}` : ''}`,
+        );
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Activities
+  // ---------------------------------------------------------------------------
+
+  private async saveActivitySummaries(
+    account: ProviderAccount,
+    summaries: GarminActivitySummary[],
+    manuallyUpdated: boolean,
+  ): Promise<void> {
+    if (!account.importActivitiesEnabled) return;
+
+    // A multisport parent repeats its legs, which come as their own
+    // activities: importing it would count the training twice
+    const activities = summaries
+      .filter((summary) => !summary.isParent)
+      .map(toImportedGarminActivity)
+      .filter((activity): activity is ImportedActivity => activity !== null);
+    if (activities.length === 0) return;
+
+    const existing = await this.prisma.activitySource.findMany({
       where: {
         athleteId: account.athleteId,
         provider: this.provider,
-        externalId: { in: activities.map((a) => a.externalId) },
+        externalId: { in: activities.map((activity) => activity.externalId) },
       },
       select: { externalId: true },
     });
-    const existingIdsSet = new Set(
-      existingExternalIds.map((a) => a.externalId),
-    );
-
-    const newActivities = activities.filter(
-      (a) => !existingIdsSet.has(a.externalId),
-    );
-
-    if (newActivities.length === 0) {
-      this.logger.log(
-        `No new Garmin activities to queue for account ${account.providerAccountId}`,
-      );
-      return 0;
+    const existingIds = new Set(existing.map((source) => source.externalId));
+    if (manuallyUpdated) {
+      for (const activity of activities) {
+        const result = await this.importActivity(account, activity, true);
+        await this.dispatchReconciledActivity(result);
+      }
+      return;
     }
-
-    await this.queueService.addActivityImportJobs(account, newActivities, true);
-    return newActivities.length;
+    await this.queueService.addActivityImportJobs(
+      account,
+      activities.filter((activity) => !existingIds.has(activity.externalId)),
+      false,
+    );
   }
 
   async importActivity(
     account: ProviderAccount,
     activity: ImportedActivity,
+    update = false,
   ): Promise<ImportResult> {
     const source = await this.reconciliation.findSource(
       account.athleteId,
       this.provider,
       activity.externalId,
     );
-    if (source)
+    if (source && !update)
       return {
         activity: source.eventActivity,
         created: false,
@@ -755,1513 +885,294 @@ export class GarminProviderService
           ? { ignored: true }
           : {}),
       };
-    const recording = await this.fetchGarminActivityData(
-      activity.raw as GarminActivitySummary,
-    );
-    const result = await this.reconciliation.reconcile(
+    const summary = activity.raw as GarminActivitySummary;
+    const stored = source?.payload as unknown as ActivityRecording | undefined;
+    return this.reconciliation.reconcile(
       account.athleteId,
       this.provider,
       activity.externalId,
       {
-        ...recording,
-        name: activity.name,
-        startDate: activity.startDate.toISOString(),
-        endDate: activity.endDate.toISOString(),
+        name: activity.name || summary.activityType || 'Activity',
+        startDate: new Date(activity.startDate).toISOString(),
+        endDate: new Date(activity.endDate).toISOString(),
+        values: activityMetrics(summary),
+        stream: stored?.stream ?? {},
+        ...(stored?.laps ? { laps: stored.laps } : {}),
         original: true,
-        recordingKind: (activity.raw as GarminActivitySummary).isParent
+        recordingKind: summary.isParent
           ? 'multisport_parent'
-          : (activity.raw as GarminActivitySummary).parentSummaryId
+          : summary.parentSummaryId
             ? 'multisport_leg'
             : 'single',
-        raw: activity.raw as object,
+        raw: { ...stored?.raw, ...summary },
       },
     );
-    const pendingFile = await this.getPendingFile(activity.externalId);
-    if (pendingFile && result.activity) {
-      await this.processActivityFile(
-        account,
-        result.activity,
-        pendingFile.callbackURL,
-        pendingFile.fileType as 'FIT' | 'GPX',
-        activity.externalId,
-        false,
+  }
+
+  private async dispatchReconciledActivity(result: ImportResult) {
+    if (
+      result.activity?.eventId &&
+      result.processingPending &&
+      result.receiptId
+    ) {
+      await this.queueService.addActivityProcessingJob(
+        result.activity.eventActivityId,
+        result.activity.eventId,
+        true,
+        `source-${result.receiptId}-${result.revision}`,
       );
-      const updated = await this.reconciliation.findSource(
+      await this.reconciliation.markDispatched(
+        result.receiptId,
+        result.revision!,
+      );
+    }
+  }
+
+  /**
+   * Activity files can be downloaded once, within 24 hours (a second
+   * download answers 410). The file often arrives before its activity is
+   * saved: the job is then retried until it is.
+   */
+  private async processActivityFile(
+    notification: GarminNotificationJobData,
+    account: ProviderAccount | null,
+    lastAttempt: boolean,
+  ): Promise<void> {
+    const entry =
+      notification.entry as unknown as Partial<GarminActivityFileNotification>;
+    const { callbackURL } = notification;
+    if (!callbackURL) return;
+
+    const fileType = String(entry.fileType ?? '').toUpperCase();
+    const parsable = fileType === 'FIT' || fileType === 'GPX';
+    const activityId =
+      entry.activityId === undefined ? null : String(entry.activityId);
+
+    let activity:
+      | (EventActivity & {
+          event: { name: string; startDate: Date; endDate: Date };
+        })
+      | null = null;
+    let source: Awaited<
+      ReturnType<ActivityReconciliationService['findSource']>
+    > = null;
+    if (account?.importActivitiesEnabled && parsable && activityId) {
+      source = await this.reconciliation.findSource(
         account.athleteId,
         this.provider,
-        activity.externalId,
+        activityId,
       );
-      if (updated)
-        return {
-          ...result,
-          activity: updated.eventActivity,
-          revision: updated.revision,
-          processingPending: updated.processingPending,
-        };
-    }
-    return result;
-  }
-
-  private async fetchGarminActivityData(
-    activity: GarminActivitySummary,
-  ): Promise<Pick<ActivityRecording, 'values' | 'stream'>> {
-    const activityStream: ActivityStream = {};
-
-    const summary = activity;
-    const sport = mapGarminActivityType(summary.activityType);
-
-    let averageCadence: number | undefined;
-    if (summary.averageBikeCadenceInRoundsPerMinute !== undefined) {
-      averageCadence =
-        roundCadence(summary.averageBikeCadenceInRoundsPerMinute) ?? undefined;
-    } else if (summary.averageRunCadenceInStepsPerMinute !== undefined) {
-      averageCadence =
-        roundCadence(summary.averageRunCadenceInStepsPerMinute) ?? undefined;
-    } else if (summary.averageSwimCadenceInStrokesPerMinute !== undefined) {
-      averageCadence =
-        roundCadence(summary.averageSwimCadenceInStrokesPerMinute) ?? undefined;
-    }
-
-    const movingTime = summary.durationInSeconds;
-
-    return {
-      values: {
-        distance: roundDistance(summary.distanceInMeters || 0),
-        elevationGain: roundElevation(summary.totalElevationGainInMeters || 0),
-        movingTime: movingTime,
-        averageSpeed:
-          roundSpeed(summary.averageSpeedInMetersPerSecond || 0) ?? 0,
-        maxSpeed: roundSpeed(summary.maxSpeedInMetersPerSecond || 0) ?? 0,
-        averageCadence: averageCadence,
-        averageHeartrate: roundHeartrate(
-          summary.averageHeartRateInBeatsPerMinute,
-        ),
-        maxHeartrate: roundHeartrate(summary.maxHeartRateInBeatsPerMinute),
-        kilojoules: summary.activeKilocalories
-          ? roundEnergy(summary.activeKilocalories * 4.184)
-          : undefined,
-        sport,
-      },
-      stream: activityStream,
-    };
-  }
-
-  async handleActivityPingWebhook(
-    payload: GarminActivityPingWebhook,
-  ): Promise<void> {
-    const account = await this.prisma.providerAccount.findFirst({
-      where: {
-        provider: ConnectorProvider.GARMIN,
-        externalUserId: payload.userId,
-        status: 'active',
-      },
-      include: {
-        athlete: {
-          include: {
-            user: true,
-          },
-        },
-      },
-    });
-
-    if (!account || !account.athlete || !account.athlete.user) {
-      this.logger.warn(
-        `Garmin activity ping for unknown/inactive user ${payload.userId}; no callback fetched`,
-      );
-      return;
-    }
-
-    // Always fetch the callback URL to "answer" the ping (Garmin requirement),
-    // even if import is disabled. Persistence/queueing is skipped in that case.
-    let activities: GarminActivitySummary[] = [];
-    try {
-      activities = await this.fetchActivitySummaries(
-        account,
-        payload.callbackURL,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch Garmin activity callback for account ${account.providerAccountId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
-
-    if (!account.importActivitiesEnabled) {
-      this.logger.debug(
-        `Activity import disabled for Garmin account ${account.providerAccountId}; fetched ${activities.length} activities but skipping queue`,
-      );
-      return;
-    }
-
-    if (activities.length === 0) {
-      return;
-    }
-
-    const activityIds = activities.map((a) => String(a.activityId));
-    const existingExternalIds = await this.prisma.eventActivity.findMany({
-      where: {
-        provider: this.provider,
-        event: { athleteId: account.athleteId },
-        externalId: {
-          in: activityIds,
-        },
-      },
-      select: {
-        externalId: true,
-      },
-    });
-
-    const existingIdsSet = new Set(
-      existingExternalIds.map((a) => a.externalId),
-    );
-
-    const newActivities: ImportedActivity[] = activities
-      .filter((a) => !existingIdsSet.has(String(a.activityId)))
-      .map((activity) => {
-        const startDate = new Date(activity.startTimeInSeconds * 1000);
-        const endDate = new Date(
-          startDate.getTime() + activity.durationInSeconds * 1000,
-        );
-
-        return {
-          externalId: String(activity.activityId),
-          name: activity.activityName,
-          startDate,
-          endDate,
-          sport: mapGarminActivityType(activity.activityType),
-          raw: activity,
-        };
-      });
-
-    if (newActivities.length === 0) {
-      return;
-    }
-
-    try {
-      await this.queueService.addActivityImportJobs(
-        account,
-        newActivities,
-        false,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to enqueue Garmin activities for account ${account.providerAccountId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  private async fetchActivitySummaries(
-    account: ProviderAccount,
-    callbackURL: string,
-  ): Promise<GarminActivitySummary[]> {
-    const safeCallbackUrl = this.getSafeGarminCallbackUrl(callbackURL);
-    return this.makeAuthenticatedRequest<GarminActivitySummary[]>(
-      account,
-      async (accessToken) => {
-        const response = await axios.get<GarminActivitySummary[]>(
-          safeCallbackUrl,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-            timeout: 30000,
-          },
-        );
-        return Array.isArray(response.data) ? response.data : [];
-      },
-    );
-  }
-
-  private async storePendingFile(
-    activityId: string,
-    payload: GarminActivityFilePingWebhook,
-  ): Promise<void> {
-    if (!this.redis) {
-      await this.initRedis();
-    }
-    if (!this.redis) return;
-
-    const key = `garmin:file:${activityId}`;
-    await this.redis.setex(
-      key,
-      3600,
-      JSON.stringify({
-        callbackURL: payload.callbackURL,
-        userId: payload.userId,
-        fileType: payload.fileType,
-      }),
-    );
-  }
-
-  private async getPendingFile(
-    activityId: string,
-  ): Promise<{ callbackURL: string; userId: string; fileType: string } | null> {
-    if (!this.redis) {
-      await this.initRedis();
-    }
-    if (!this.redis) return null;
-
-    const key = `garmin:file:${activityId}`;
-    const data = await this.redis.get(key);
-    if (!data) return null;
-
-    await this.redis.del(key);
-    return JSON.parse(data);
-  }
-
-  async handleHealthPingWebhook(
-    payload: GarminHealthPingPayload | undefined,
-  ): Promise<void> {
-    if (!payload) {
-      return;
-    }
-
-    // Process callbacks asynchronously after returning HTTP 200
-    // This is required by Garmin to avoid timeouts
-    setImmediate(() => {
-      this.processHealthPingPayload(payload).catch((error) => {
-        this.logger.error(
-          `Failed to process Garmin health ping payload: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
-    });
-  }
-
-  private async processHealthPingPayload(
-    payload: GarminHealthPingPayload,
-  ): Promise<void> {
-    const summaryTypes = Object.keys(payload) as GarminHealthSummaryType[];
-    for (const summaryType of summaryTypes) {
-      const notifications = payload[summaryType];
-      if (!Array.isArray(notifications)) {
-        continue;
-      }
-
-      for (const notification of notifications) {
-        if (!notification?.userId || !notification.callbackURL) {
-          this.logger.warn(
-            `Garmin ${summaryType} ping missing userId or callbackURL; skipping`,
-          );
-          continue;
-        }
-
-        const account = await this.prisma.providerAccount.findFirst({
+      // A review receipt may intentionally have no canonical activity. Its file
+      // still enriches the stored recording for review without creating one.
+      if (!source) {
+        activity = await this.prisma.eventActivity.findFirst({
           where: {
-            provider: ConnectorProvider.GARMIN,
-            externalUserId: notification.userId,
-            status: 'active',
+            provider: this.provider,
+            externalId: activityId,
+            event: { athleteId: account.athleteId },
           },
+          include: { event: true },
         });
-
-        if (!account) {
-          this.logger.warn(
-            `Garmin ${summaryType} ping for unknown/inactive user ${notification.userId}; no callback fetched`,
-          );
-          continue;
-        }
-
-        try {
-          await this.processHealthSummary(
-            account,
-            summaryType,
-            notification.callbackURL,
-            account.importMetricsEnabled,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Failed to process Garmin ${summaryType} summary for account ${account.providerAccountId}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
       }
-    }
-  }
-
-  private async processHealthSummary(
-    account: ProviderAccount,
-    summaryType: GarminHealthSummaryType,
-    callbackURL: string,
-    shouldPersist: boolean,
-  ): Promise<void> {
-    // Epochs are 15-minute wellness slices already aggregated in dailies.
-    // We still need to answer the ping (fetch the callback) to keep Garmin happy.
-    if (summaryType === 'epochs') {
-      await this.fetchHealthSummaries(account, callbackURL);
-      if (shouldPersist) {
-        this.logger.debug(
-          `Garmin epochs ping fetched for account ${account.providerAccountId}; data already aggregated in dailies`,
+      if (!source && !activity && !lastAttempt) {
+        throw new Error(
+          `Garmin activity ${activityId} is not saved yet; its file will be fetched on the next attempt`,
         );
       }
-      return;
     }
 
-    const persistIfEnabled = async <U>(
-      data: U[],
-      mapper: (data: U[]) => MetricRecord[],
-    ): Promise<void> => {
-      if (!shouldPersist) {
-        this.logger.debug(
-          `Garmin ${summaryType} ping answered for account ${account.providerAccountId} (import disabled, ${data.length} item(s) discarded)`,
+    let file: ArrayBuffer;
+    try {
+      file = await this.pullCallback<ArrayBuffer>(
+        callbackURL,
+        account,
+        'arraybuffer',
+      );
+    } catch (error) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      if (status === 410 || status === 404 || status === 412) {
+        this.logger.warn(
+          `Garmin activity file ${activityId ?? ''} answered ${status}; skipped`,
         );
         return;
       }
-      const metrics = mapper(data);
-      await this.saveMetrics(account.athleteId, metrics);
-    };
-
-    switch (summaryType) {
-      case 'dailies': {
-        const data = await this.fetchHealthSummaries<GarminDailySummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) => this.mapDailySummariesToMetrics(d));
-        break;
-      }
-      case 'sleeps': {
-        const data = await this.fetchHealthSummaries<GarminSleepSummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) => this.mapSleepSummariesToMetrics(d));
-        break;
-      }
-      case 'bodyComps': {
-        const data =
-          await this.fetchHealthSummaries<GarminBodyCompositionSummary>(
-            account,
-            callbackURL,
-          );
-        await persistIfEnabled(data, (d) =>
-          this.mapBodyCompSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'userMetrics': {
-        const data = await this.fetchHealthSummaries<GarminUserMetricsSummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) =>
-          this.mapUserMetricsSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'pulseox': {
-        const data = await this.fetchHealthSummaries<GarminPulseOxSummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) =>
-          this.mapPulseOxSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'allDayRespiration': {
-        const data = await this.fetchHealthSummaries<GarminRespirationSummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) =>
-          this.mapRespirationSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'healthSnapshot': {
-        const data =
-          await this.fetchHealthSummaries<GarminHealthSnapshotSummary>(
-            account,
-            callbackURL,
-          );
-        await persistIfEnabled(data, (d) =>
-          this.mapHealthSnapshotSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'hrv': {
-        const data = await this.fetchHealthSummaries<GarminHrvSummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) => this.mapHrvSummariesToMetrics(d));
-        break;
-      }
-      case 'bloodPressures': {
-        const data =
-          await this.fetchHealthSummaries<GarminBloodPressureSummary>(
-            account,
-            callbackURL,
-          );
-        await persistIfEnabled(data, (d) =>
-          this.mapBloodPressureSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'skinTemp': {
-        const data = await this.fetchHealthSummaries<GarminSkinTempSummary>(
-          account,
-          callbackURL,
-        );
-        await persistIfEnabled(data, (d) =>
-          this.mapSkinTempSummariesToMetrics(d),
-        );
-        break;
-      }
-      case 'stressDetails': {
-        const data =
-          await this.fetchHealthSummaries<GarminStressDetailsSummary>(
-            account,
-            callbackURL,
-          );
-        await persistIfEnabled(data, (d) =>
-          this.mapStressDetailsSummariesToMetrics(d),
-        );
-        break;
-      }
-      default: {
-        this.logger.warn(
-          `Unhandled Garmin health summary type: ${summaryType as string}; still fetching callback to answer ping`,
-        );
-        await this.fetchHealthSummaries(account, callbackURL);
-        break;
-      }
+      throw error;
     }
+
+    if (!account || (!source && !activity) || !activityId) return;
+    // Answer ignored/deleted source notifications without resurrecting them.
+    if (source?.reviewDecision && !source.eventActivityId) return;
+    const parsed = await this.activityFileParserService.parseByFileType(
+      file,
+      fileType as 'FIT' | 'GPX',
+    );
+    buildFitActivityDetails(parsed); // Validate the timeline and remove incomplete channels.
+    const stored = source?.payload as unknown as ActivityRecording | undefined;
+    const recording = stored?.values
+      ? stored
+      : this.reconciliation.fromActivity(activity!);
+    const result = await this.reconciliation.reconcile(
+      account.athleteId,
+      this.provider,
+      activityId,
+      {
+        ...recording,
+        stream: parsed.stream,
+        laps: (parsed.segments ?? [])
+          .filter((lap) => lap.endTimeSeconds > lap.startTimeSeconds)
+          .map((lap) => ({
+            startDate: new Date(
+              Date.parse(recording.startDate) + lap.startTimeSeconds * 1000,
+            ).toISOString(),
+            endDate: new Date(
+              Date.parse(recording.startDate) + lap.endTimeSeconds * 1000,
+            ).toISOString(),
+            name: lap.name,
+          })),
+        raw: { ...recording.raw, fileSegments: parsed.segments ?? [] },
+      },
+    );
+    await this.dispatchReconciledActivity(result);
   }
 
-  private async fetchHealthSummaries<T>(
-    account: ProviderAccount,
-    callbackURL: string,
-  ): Promise<T[]> {
-    const safeCallbackUrl = this.getSafeGarminCallbackUrl(callbackURL);
-    return this.makeAuthenticatedRequest<T[]>(account, async (accessToken) => {
-      try {
-        const response = await axios.get<T[] | T>(safeCallbackUrl, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-          timeout: 45000,
-        });
+  // ---------------------------------------------------------------------------
+  // Health
+  // ---------------------------------------------------------------------------
 
-        if (Array.isArray(response.data)) {
-          return response.data;
-        }
-        if (response.data) {
-          return [response.data as T];
-        }
-        return [];
-      } catch (error) {
-        // Let 401 propagate so makeAuthenticatedRequest can refresh the token
-        // and retry. Other 4xx are treated as "answered with empty payload".
-        if (isAxiosError(error) && error.response?.status === 401) {
-          throw error;
-        }
-        if (
-          isAxiosError(error) &&
-          error.response?.status &&
-          error.response.status >= 400 &&
-          error.response.status < 500
-        ) {
-          this.logger.warn(
-            `Garmin health callback returned ${error.response.status} for account ${account.providerAccountId}: ${error.message}`,
-          );
-          return [];
-        }
-        this.logger.error(
-          `Garmin health callback fetch failed for account ${account.providerAccountId}: ${error instanceof Error ? error.message : String(error)}`,
+  private async saveHealthSummaries(
+    account: ProviderAccount,
+    summaryType: string,
+    summaries: Summary[],
+  ): Promise<void> {
+    if (!account.importMetricsEnabled || summaries.length === 0) return;
+
+    let metrics: GarminMetricRecord[];
+    switch (summaryType) {
+      case 'dailies':
+        metrics = mapGarminDailies(
+          summaries as unknown as GarminDailySummary[],
         );
-        throw error;
-      }
-    });
+        break;
+      case 'sleeps':
+        metrics = mapGarminSleeps(summaries as unknown as GarminSleepSummary[]);
+        break;
+      case 'bodyComps':
+        metrics = mapGarminBodyComps(
+          summaries as unknown as GarminBodyCompositionSummary[],
+        );
+        break;
+      case 'userMetrics':
+        metrics = mapGarminUserMetrics(
+          summaries as unknown as GarminUserMetricsSummary[],
+        );
+        break;
+      case 'healthSnapshot':
+        metrics = mapGarminHealthSnapshots(
+          summaries as unknown as GarminHealthSnapshotSummary[],
+        );
+        break;
+      case 'hrv':
+        metrics = mapGarminHrv(summaries as unknown as GarminHrvSummary[]);
+        break;
+      case 'bloodPressures':
+        metrics = mapGarminBloodPressures(
+          summaries as unknown as GarminBloodPressureSummary[],
+        );
+        break;
+      case 'skinTemp':
+        metrics = mapGarminSkinTemps(
+          summaries as unknown as GarminSkinTempSummary[],
+        );
+        break;
+      case 'allDayRespiration':
+        metrics = await this.mergeDailyPartials(
+          account.athleteId,
+          garminRespirationPartials(
+            summaries as unknown as GarminRespirationSummary[],
+          ),
+        );
+        break;
+      case 'pulseox':
+        metrics = await this.mergeDailyPartials(
+          account.athleteId,
+          garminPulseOxPartials(summaries as unknown as GarminPulseOxSummary[]),
+        );
+        break;
+      default:
+        this.logger.debug(`Garmin ${summaryType} summaries are not saved`);
+        return;
+    }
+
+    await this.saveMetrics(account.athleteId, metrics);
+  }
+
+  /**
+   * Keeps each summary of a day in Redis, replaced by its updates, and
+   * averages the whole day: a ping only carries the summaries synced since
+   * the previous one.
+   */
+  private async mergeDailyPartials(
+    athleteId: number,
+    partials: GarminDailyPartial[],
+  ): Promise<GarminMetricRecord[]> {
+    const days = new Map<string, { type: MetricType; day: string }>();
+    const redis = this.getRedis();
+    for (const partial of partials) {
+      const key = `garmin:daily:${athleteId}:${partial.type}:${partial.day}`;
+      await redis.hset(
+        key,
+        partial.key,
+        JSON.stringify({
+          sum: partial.sum,
+          count: partial.count,
+          min: partial.min,
+        }),
+      );
+      await redis.expire(key, DAILY_PARTIALS_TTL_SECONDS);
+      days.set(key, { type: partial.type, day: partial.day });
+    }
+
+    const metrics: GarminMetricRecord[] = [];
+    for (const [key, { type, day }] of days) {
+      const parts = Object.values(await redis.hgetall(key)).map(
+        (value) =>
+          JSON.parse(value) as { sum: number; count: number; min: number },
+      );
+      const metric = aggregateGarminPartials(type, day, parts);
+      if (metric) metrics.push(metric);
+    }
+    return metrics;
   }
 
   private async saveMetrics(
     athleteId: number,
-    metrics: MetricRecord[],
+    metrics: GarminMetricRecord[],
   ): Promise<void> {
-    const validMetrics = metrics.filter(
+    const valid = metrics.filter(
       (metric) =>
-        metric.date instanceof Date &&
-        !Number.isNaN(metric.date.getTime()) &&
-        Number.isFinite(metric.value),
+        !Number.isNaN(metric.date.getTime()) && Number.isFinite(metric.value),
     );
-
-    if (validMetrics.length === 0) {
-      return;
-    }
+    if (valid.length === 0) return;
 
     await this.prisma.$transaction(
-      validMetrics.map((metric) =>
+      valid.map((metric) =>
         this.prisma.athleteMetric.upsert({
           where: {
             athleteId_type_date: {
-              athleteId: athleteId,
-              type: metric.type as unknown as MetricType,
+              athleteId,
+              type: metric.type,
               date: metric.date,
             },
           },
           create: {
-            athleteId: athleteId,
-            type: metric.type as unknown as MetricType,
+            athleteId,
+            type: metric.type,
             date: metric.date,
             value: roundMetricValue(metric.value),
-            source: 'GARMIN',
           },
-          update: {
-            value: roundMetricValue(metric.value),
-            source: 'GARMIN',
-            sourceMetadata: Prisma.DbNull,
-          },
+          update: { value: roundMetricValue(metric.value) },
         }),
       ),
     );
-  }
-
-  private mapDailySummariesToMetrics(
-    summaries: GarminDailySummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.parseCalendarDate(summary.calendarDate);
-      if (!date) continue;
-
-      const totalCalories =
-        (summary.activeKilocalories ?? 0) + (summary.bmrKilocalories ?? 0);
-
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_CALORIES,
-        date,
-        totalCalories,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_ACTIVE_CALORIES,
-        date,
-        summary.activeKilocalories,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_BMR_CALORIES,
-        date,
-        summary.bmrKilocalories,
-        0,
-      );
-      this.pushMetric(metrics, MetricType.DAILY_STEPS, date, summary.steps, 0);
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_DISTANCE,
-        date,
-        this.metersToKilometers(summary.distanceInMeters),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_ACTIVE_MINUTES,
-        date,
-        this.secondsToMinutes(summary.activeTimeInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_MODERATE_MINUTES,
-        date,
-        this.secondsToMinutes(summary.moderateIntensityDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_VIGOROUS_MINUTES,
-        date,
-        this.secondsToMinutes(summary.vigorousIntensityDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.DAILY_FLOORS,
-        date,
-        summary.floorsClimbed,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.HR_MIN_DAILY,
-        date,
-        summary.minHeartRateInBeatsPerMinute,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.HR_AVG_DAILY,
-        date,
-        summary.averageHeartRateInBeatsPerMinute,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.HR_MAX_DAILY,
-        date,
-        summary.maxHeartRateInBeatsPerMinute,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.HR_REST,
-        date,
-        summary.restingHeartRateInBeatsPerMinute,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_AVERAGE,
-        date,
-        summary.averageStressLevel,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_MAX,
-        date,
-        summary.maxStressLevel,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_DURATION,
-        date,
-        this.secondsToMinutes(summary.stressDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_REST_DURATION,
-        date,
-        this.secondsToMinutes(summary.restStressDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_ACTIVITY_DURATION,
-        date,
-        this.secondsToMinutes(summary.activityStressDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_LOW_DURATION,
-        date,
-        this.secondsToMinutes(summary.lowStressDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_MEDIUM_DURATION,
-        date,
-        this.secondsToMinutes(summary.mediumStressDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.STRESS_HIGH_DURATION,
-        date,
-        this.secondsToMinutes(summary.highStressDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.BODY_BATTERY_CHARGED,
-        date,
-        summary.bodyBatteryChargedValue,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.BODY_BATTERY_DRAINED,
-        date,
-        summary.bodyBatteryDrainedValue,
-        0,
-      );
-    }
-
-    return metrics;
-  }
-
-  private mapSleepSummariesToMetrics(
-    summaries: GarminSleepSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.parseCalendarDate(summary.calendarDate);
-      if (!date) continue;
-
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_DURATION,
-        date,
-        this.secondsToHours(summary.durationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_REM_DURATION,
-        date,
-        this.secondsToHours(summary.remSleepInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_DEEP_DURATION,
-        date,
-        this.secondsToHours(summary.deepSleepDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_LIGHT_DURATION,
-        date,
-        this.secondsToHours(summary.lightSleepDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_AWAKE_DURATION,
-        date,
-        this.secondsToHours(summary.awakeDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.NAP_DURATION,
-        date,
-        this.secondsToHours(summary.totalNapDurationInSeconds),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_SCORE,
-        date,
-        summary.overallSleepScore?.value,
-        0,
-      );
-
-      const respirationAvg = this.average(
-        this.extractNumericValues(summary.timeOffsetSleepRespiration),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.SLEEP_RESPIRATION_AVG,
-        date,
-        respirationAvg,
-      );
-
-      const spo2Avg = this.average(
-        this.extractNumericValues(summary.timeOffsetSleepSpo2),
-      );
-      this.pushMetric(metrics, MetricType.SLEEP_SPO2_AVG, date, spo2Avg);
-    }
-
-    return metrics;
-  }
-
-  private mapBodyCompSummariesToMetrics(
-    summaries: GarminBodyCompositionSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.dateFromTimestamp(
-        summary.measurementTimeInSeconds,
-        summary.measurementTimeOffsetInSeconds,
-      );
-      if (!date) continue;
-
-      this.pushMetric(
-        metrics,
-        MetricType.WEIGHT,
-        date,
-        this.gramsToKilograms(summary.weightInGrams),
-      );
-      this.pushMetric(metrics, MetricType.BMI, date, summary.bodyMassIndex);
-      this.pushMetric(
-        metrics,
-        MetricType.BODY_FAT,
-        date,
-        summary.bodyFatInPercent,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.BODY_WATER,
-        date,
-        summary.bodyWaterInPercent,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.MUSCLE_MASS,
-        date,
-        this.gramsToKilograms(summary.muscleMassInGrams),
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.BONE_MASS,
-        date,
-        this.gramsToKilograms(summary.boneMassInGrams),
-      );
-    }
-
-    return metrics;
-  }
-
-  private mapUserMetricsSummariesToMetrics(
-    summaries: GarminUserMetricsSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.parseCalendarDate(summary.calendarDate);
-      if (!date) continue;
-
-      this.pushMetric(metrics, MetricType.VO2MAX, date, summary.vo2Max);
-      this.pushMetric(
-        metrics,
-        MetricType.VO2MAX_CYCLING,
-        date,
-        summary.vo2MaxCycling,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.FITNESS_AGE,
-        date,
-        summary.fitnessAge,
-        0,
-      );
-    }
-
-    return metrics;
-  }
-
-  private mapPulseOxSummariesToMetrics(
-    summaries: GarminPulseOxSummary[],
-  ): MetricRecord[] {
-    const stats = new Map<
-      string,
-      { sum: number; count: number; min: number }
-    >();
-
-    for (const summary of summaries) {
-      const date =
-        this.parseCalendarDate(summary.calendarDate) ??
-        this.dateFromTimestamp(
-          summary.startTimeInSeconds,
-          summary.startTimeOffsetInSeconds,
-        );
-      if (!date) continue;
-
-      const values = this.extractNumericValues(summary.timeOffsetSpo2Values);
-      if (values.length === 0) continue;
-
-      const key = date.toISOString();
-      const current = stats.get(key) ?? {
-        sum: 0,
-        count: 0,
-        min: Number.POSITIVE_INFINITY,
-      };
-
-      for (const value of values) {
-        current.sum += value;
-        current.count += 1;
-        current.min = Math.min(current.min, value);
-      }
-
-      stats.set(key, current);
-    }
-
-    const metrics: MetricRecord[] = [];
-
-    for (const [key, value] of stats.entries()) {
-      if (value.count === 0) continue;
-      const date = new Date(key);
-
-      this.pushMetric(
-        metrics,
-        MetricType.PULSE_OX_AVG,
-        date,
-        value.sum / value.count,
-      );
-
-      if (Number.isFinite(value.min)) {
-        this.pushMetric(metrics, MetricType.PULSE_OX_MIN, date, value.min);
-      }
-    }
-
-    return metrics;
-  }
-
-  private mapRespirationSummariesToMetrics(
-    summaries: GarminRespirationSummary[],
-  ): MetricRecord[] {
-    const stats = new Map<string, { sum: number; count: number }>();
-
-    for (const summary of summaries) {
-      const date = this.dateFromTimestamp(
-        summary.startTimeInSeconds,
-        summary.startTimeOffsetInSeconds,
-      );
-      if (!date) continue;
-
-      const values = this.extractNumericValues(
-        summary.timeOffsetEpochToBreaths,
-      );
-      if (values.length === 0) continue;
-
-      const avg = this.average(values);
-      if (avg === undefined) continue;
-
-      const key = date.toISOString();
-      const current = stats.get(key) ?? { sum: 0, count: 0 };
-      current.sum += avg;
-      current.count += 1;
-      stats.set(key, current);
-    }
-
-    const metrics: MetricRecord[] = [];
-    for (const [key, value] of stats.entries()) {
-      if (value.count === 0) continue;
-      const date = new Date(key);
-      this.pushMetric(
-        metrics,
-        MetricType.RESPIRATION_RATE_AVG,
-        date,
-        value.sum / value.count,
-      );
-    }
-    return metrics;
-  }
-
-  private mapHealthSnapshotSummariesToMetrics(
-    summaries: GarminHealthSnapshotSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date =
-        this.parseCalendarDate(summary.calendarDate) ??
-        this.dateFromTimestamp(
-          summary.startTimeInSeconds,
-          summary.startTimeOffsetInSeconds,
-        );
-      if (!date) continue;
-
-      for (const item of summary.summaries ?? []) {
-        switch (item.summaryType) {
-          case 'heart_rate':
-            this.pushMetric(
-              metrics,
-              MetricType.SNAPSHOT_HEART_RATE_AVG,
-              date,
-              item.avgValue,
-            );
-            break;
-          case 'stress':
-            this.pushMetric(
-              metrics,
-              MetricType.SNAPSHOT_STRESS_AVG,
-              date,
-              item.avgValue,
-            );
-            break;
-          case 'respiration':
-            this.pushMetric(
-              metrics,
-              MetricType.SNAPSHOT_RESPIRATION_AVG,
-              date,
-              item.avgValue,
-            );
-            break;
-          case 'spo2':
-            this.pushMetric(
-              metrics,
-              MetricType.SNAPSHOT_SPO2_AVG,
-              date,
-              item.avgValue,
-            );
-            break;
-          case 'rmssd_hrv':
-            this.pushMetric(
-              metrics,
-              MetricType.SNAPSHOT_RMSSD,
-              date,
-              item.avgValue,
-            );
-            break;
-          case 'sdrr_hrv':
-            this.pushMetric(
-              metrics,
-              MetricType.SNAPSHOT_SDNN,
-              date,
-              item.avgValue,
-            );
-            break;
-          default:
-            break;
-        }
-      }
-    }
-
-    return metrics;
-  }
-
-  private mapHrvSummariesToMetrics(
-    summaries: GarminHrvSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.parseCalendarDate(summary.calendarDate);
-      if (!date) continue;
-
-      this.pushMetric(
-        metrics,
-        MetricType.HRV_LAST_NIGHT_AVG,
-        date,
-        summary.lastNightAvg,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.HRV_LAST_NIGHT_5MIN_HIGH,
-        date,
-        summary.lastNight5MinHigh,
-      );
-    }
-
-    return metrics;
-  }
-
-  private mapBloodPressureSummariesToMetrics(
-    summaries: GarminBloodPressureSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.dateFromTimestamp(
-        summary.measurementTimeInSeconds,
-        summary.measurementTimeOffsetInSeconds,
-      );
-      if (!date) continue;
-
-      this.pushMetric(
-        metrics,
-        MetricType.BLOOD_PRESSURE_SYSTOLIC,
-        date,
-        summary.systolic,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.BLOOD_PRESSURE_DIASTOLIC,
-        date,
-        summary.diastolic,
-        0,
-      );
-      this.pushMetric(
-        metrics,
-        MetricType.BLOOD_PRESSURE_PULSE,
-        date,
-        summary.pulse,
-        0,
-      );
-    }
-
-    return metrics;
-  }
-
-  private mapSkinTempSummariesToMetrics(
-    summaries: GarminSkinTempSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date = this.parseCalendarDate(summary.calendarDate);
-      if (!date) continue;
-
-      this.pushMetric(
-        metrics,
-        MetricType.SKIN_TEMP_DEVIATION,
-        date,
-        summary.avgDeviationCelsius,
-      );
-    }
-
-    return metrics;
-  }
-
-  private mapStressDetailsSummariesToMetrics(
-    summaries: GarminStressDetailsSummary[],
-  ): MetricRecord[] {
-    const metrics: MetricRecord[] = [];
-
-    for (const summary of summaries) {
-      const date =
-        this.parseCalendarDate(summary.calendarDate) ??
-        this.dateFromTimestamp(
-          summary.startTimeInSeconds,
-          summary.startTimeOffsetInSeconds,
-        );
-      if (!date) continue;
-
-      // Extract stress level values and calculate statistics
-      const stressValues = this.extractNumericValues(
-        summary.timeOffsetStressLevelValues,
-      );
-      if (stressValues.length > 0) {
-        const validStressValues = stressValues.filter((v) => v > 0 && v <= 100);
-        if (validStressValues.length > 0) {
-          const avg = this.average(validStressValues);
-          const max = Math.max(...validStressValues);
-          if (avg !== undefined) {
-            this.pushMetric(metrics, MetricType.STRESS_AVERAGE, date, avg, 0);
-          }
-          if (Number.isFinite(max)) {
-            this.pushMetric(metrics, MetricType.STRESS_MAX, date, max, 0);
-          }
-        }
-      }
-
-      // Extract body battery values and calculate statistics
-      const bodyBatteryValues = this.extractNumericValues(
-        summary.timeOffsetBodyBatteryValues,
-      );
-      if (bodyBatteryValues.length > 0) {
-        const validBatteryValues = bodyBatteryValues.filter(
-          (v) => v >= 0 && v <= 100,
-        );
-        if (validBatteryValues.length > 0) {
-          // Calculate charged/drained from changes in body battery
-          let charged = 0;
-          let drained = 0;
-          for (let i = 1; i < validBatteryValues.length; i++) {
-            const diff = validBatteryValues[i] - validBatteryValues[i - 1];
-            if (diff > 0) {
-              charged += diff;
-            } else if (diff < 0) {
-              drained += Math.abs(diff);
-            }
-          }
-          if (charged > 0) {
-            this.pushMetric(
-              metrics,
-              MetricType.BODY_BATTERY_CHARGED,
-              date,
-              charged,
-              0,
-            );
-          }
-          if (drained > 0) {
-            this.pushMetric(
-              metrics,
-              MetricType.BODY_BATTERY_DRAINED,
-              date,
-              drained,
-              0,
-            );
-          }
-        }
-      }
-    }
-
-    return metrics;
-  }
-
-  private pushMetric(
-    target: MetricRecord[],
-    type: MetricType,
-    date: Date | null,
-    value?: number | null,
-    precision?: number,
-  ): void {
-    if (!date) return;
-    if (value === undefined || value === null) return;
-    if (!Number.isFinite(value)) return;
-
-    const normalized =
-      precision === undefined ? value : this.round(value, precision);
-
-    target.push({
-      type,
-      date,
-      value: normalized,
-    });
-  }
-
-  private parseCalendarDate(calendarDate?: string): Date | null {
-    if (!calendarDate) {
-      return null;
-    }
-    const date = new Date(`${calendarDate}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-    return this.startOfDay(date);
-  }
-
-  private dateFromTimestamp(
-    timestampSeconds?: number,
-    offsetSeconds?: number,
-  ): Date | null {
-    if (timestampSeconds === undefined) {
-      return null;
-    }
-    const offset = offsetSeconds ?? 0;
-    const date = new Date((timestampSeconds + offset) * 1000);
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-    return this.startOfDay(date);
-  }
-
-  private startOfDay(date: Date): Date {
-    return new Date(
-      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-    );
-  }
-
-  private secondsToHours(seconds?: number | null): number | undefined {
-    if (seconds === undefined || seconds === null) {
-      return undefined;
-    }
-    return this.round(seconds / 3600, 2);
-  }
-
-  private secondsToMinutes(seconds?: number | null): number | undefined {
-    if (seconds === undefined || seconds === null) {
-      return undefined;
-    }
-    return this.round(seconds / 60, 2);
-  }
-
-  private metersToKilometers(meters?: number | null): number | undefined {
-    if (meters === undefined || meters === null) {
-      return undefined;
-    }
-    return this.round(meters / 1000, 2);
-  }
-
-  private gramsToKilograms(grams?: number | null): number | undefined {
-    if (grams === undefined || grams === null) {
-      return undefined;
-    }
-    return this.round(grams / 1000, 2);
-  }
-
-  private extractNumericValues(data?: Record<string, number>): number[] {
-    if (!data) {
-      return [];
-    }
-    return Object.values(data).filter((value) => Number.isFinite(value));
-  }
-
-  private average(values: number[]): number | undefined {
-    if (!values || values.length === 0) {
-      return undefined;
-    }
-    const sum = values.reduce((acc, value) => acc + value, 0);
-    return sum / values.length;
-  }
-
-  private round(value: number, precision = 2): number {
-    const factor = Math.pow(10, precision);
-    return Math.round(value * factor) / factor;
-  }
-
-  async handleActivityFilePingWebhook(
-    payload: GarminActivityFilePingWebhook,
-  ): Promise<void> {
-    if (payload.fileType !== 'FIT' && payload.fileType !== 'GPX') {
-      this.logger.debug(
-        `Garmin activity file ping skipped: unsupported fileType ${payload.fileType}`,
-      );
-      return;
-    }
-
-    const account = await this.prisma.providerAccount.findFirst({
-      where: {
-        provider: ConnectorProvider.GARMIN,
-        externalUserId: payload.userId,
-        status: 'active',
-      },
-      include: {
-        athlete: {
-          include: {
-            user: true,
-          },
-        },
-      },
-    });
-
-    if (!account || !account.athlete || !account.athlete.user) {
-      this.logger.warn(
-        `Garmin activity file ping for unknown/inactive user ${payload.userId}; no callback fetched`,
-      );
-      return;
-    }
-
-    if (!account.importActivitiesEnabled) {
-      this.logger.debug(
-        `Activity import disabled for Garmin account ${account.providerAccountId}; activity file ping not answered`,
-      );
-      return;
-    }
-
-    const source = await this.reconciliation.findSource(
-      account.athleteId,
-      this.provider,
-      String(payload.activityId),
-    );
-    const activity = source?.eventActivity;
-
-    if (!activity) {
-      // Activity ping hasn't been processed yet. Cache the callback URL so we
-      // can fetch the file once the activity is created in our DB.
-      this.logger.debug(
-        `Caching Garmin activity file callback for activity ${payload.activityId} (not in DB yet)`,
-      );
-      await this.storePendingFile(String(payload.activityId), payload);
-      return;
-    }
-
-    await this.processActivityFile(
-      account,
-      activity,
-      payload.callbackURL,
-      payload.fileType,
-      String(payload.activityId),
-    );
-  }
-
-  private async processActivityFile(
-    account: ProviderAccount,
-    activity: EventActivity,
-    callbackURL: string,
-    fileType: 'FIT' | 'GPX',
-    externalId: string,
-    dispatch = true,
-  ): Promise<void> {
-    try {
-      const accessToken = await this.getValidAccessToken(account);
-
-      const safeCallbackUrl = this.getSafeGarminCallbackUrl(callbackURL);
-      const response = await axios.get(safeCallbackUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        responseType: 'arraybuffer',
-        timeout: 60000,
-      });
-
-      const parseResult = await this.activityFileParserService.parseByFileType(
-        response.data,
-        fileType,
-      );
-      const activityStream = parseResult.stream;
-      const source = await this.reconciliation.findSource(
-        account.athleteId,
-        this.provider,
-        externalId,
-      );
-      const canonical = await this.prisma.eventActivity.findUniqueOrThrow({
-        where: { eventActivityId: activity.eventActivityId },
-        include: { event: true },
-      });
-      const stored = source?.payload as unknown as
-        ActivityRecording | undefined;
-      const recording = stored?.values
-        ? stored
-        : this.reconciliation.fromActivity(canonical);
-      const result = await this.reconciliation.reconcile(
-        account.athleteId,
-        this.provider,
-        externalId,
-        {
-          ...recording,
-          stream: activityStream,
-          laps: (parseResult.segments ?? [])
-            .filter((lap) => lap.endTimeSeconds > lap.startTimeSeconds)
-            .map((lap) => ({
-              startDate: new Date(
-                Date.parse(recording.startDate) + lap.startTimeSeconds * 1000,
-              ).toISOString(),
-              endDate: new Date(
-                Date.parse(recording.startDate) + lap.endTimeSeconds * 1000,
-              ).toISOString(),
-              name: lap.name,
-            })),
-          raw: { ...recording.raw, fileSegments: parseResult.segments ?? [] },
-        },
-      );
-      if (dispatch && result.activity && result.processingPending) {
-        await this.queueService.addActivityProcessingJob(
-          result.activity.eventActivityId,
-          result.activity.eventId,
-          true,
-          `source-${result.receiptId}-${result.revision}`,
-        );
-        await this.reconciliation.markDispatched(
-          result.receiptId,
-          result.revision,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to download/parse Garmin activity file for activity ${activity.eventActivityId} (account ${account.providerAccountId}): ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  async handleDeregistrationWebhook(
-    payload: GarminDeregistrationWebhook,
-  ): Promise<void> {
-    const account = await this.prisma.providerAccount.findFirst({
-      where: {
-        provider: ConnectorProvider.GARMIN,
-        externalUserId: payload.userId,
-        status: 'active',
-      },
-    });
-
-    if (!account) {
-      return;
-    }
-
-    await this.prisma.providerAccount.update({
-      where: {
-        providerAccountId: account.providerAccountId,
-      },
-      data: {
-        status: 'revoked',
-      },
-    });
-  }
-
-  async handleUserPermissionsChangeWebhook(
-    payload: GarminUserPermissionsChangeWebhook,
-  ): Promise<void> {
-    const account = await this.prisma.providerAccount.findFirst({
-      where: {
-        provider: ConnectorProvider.GARMIN,
-        externalUserId: payload.userId,
-        status: 'active',
-      },
-    });
-
-    if (!account) {
-      this.logger.debug(
-        `User permissions change webhook received for unknown user: ${payload.userId}`,
-      );
-      return;
-    }
-
-    if (!payload.permissions) {
-      this.logger.debug(
-        `User permissions change webhook received for user ${payload.userId} with no permissions`,
-      );
-      return;
-    }
-
-    const hasWorkoutImport = payload.permissions.includes('WORKOUT_IMPORT');
-
-    this.logger.log(
-      `Garmin user permissions changed for account ${account.providerAccountId}. Permissions: ${payload.permissions.join(', ')}`,
-    );
-
-    if (!hasWorkoutImport) {
-      this.logger.warn(
-        `WORKOUT_IMPORT permission revoked for Garmin account ${account.providerAccountId}. Future workout syncs will fail.`,
-      );
-    }
   }
 }

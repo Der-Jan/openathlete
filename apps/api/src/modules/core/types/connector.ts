@@ -160,33 +160,40 @@ export interface GarminActivityDetail {
   laps?: Array<{ startTimeInSeconds: number }>;
 }
 
-// Garmin Webhook Types
-export interface GarminActivityPingWebhook {
-  userId: string;
-  callbackURL: string; // URL to call to fetch activities (contains Pull Token)
+// Garmin notifications. Every webhook body maps a summary type (activities,
+// dailies, activityFiles...) to a list of entries: a ping carries a callback
+// URL to pull the data from, a push carries the summary itself.
+export interface GarminNotificationEntry {
+  userId?: string;
+  callbackURL?: string;
+  [field: string]: unknown;
 }
 
-export interface GarminDeregistrationWebhook {
-  userId: string;
+export type GarminNotificationBody = Record<string, unknown>;
+
+export interface GarminDeregistration {
+  userId?: string;
 }
 
-export interface GarminUserPermissionsChangeWebhook {
-  userId: string;
-  permissions: string[];
+export interface GarminUserPermissionsChange {
+  userId?: string;
+  summaryId?: string;
+  permissions?: string[];
+  changeTimeInSeconds?: number;
 }
 
-// Garmin Activity Files Webhook (for FIT/TCX/GPX files)
-export interface GarminActivityFilePingWebhook {
+// Garmin Activity Files ping (FIT, TCX or GPX)
+export interface GarminActivityFileNotification {
   userId: string;
-  summaryId: string;
-  fileType: 'FIT' | 'GPX';
+  summaryId?: string;
+  fileType: string;
   callbackURL: string;
-  activityType: string;
-  deviceName: string;
-  startTimeInSeconds: number;
-  activityId: number;
-  activityName: string;
-  manual: boolean;
+  activityType?: string;
+  deviceName?: string;
+  startTimeInSeconds?: number;
+  activityId: number | string;
+  activityName?: string;
+  manual?: boolean;
   activityDescription?: string;
 }
 
@@ -216,11 +223,13 @@ export interface GarminDailySummary {
   highStressDurationInSeconds?: number;
   bodyBatteryChargedValue?: number;
   bodyBatteryDrainedValue?: number;
+  timeOffsetHeartRateSamples?: Record<string, number>;
 }
 
 export interface GarminSleepSummary {
   summaryId: string;
   calendarDate: string;
+  validation?: string;
   durationInSeconds?: number;
   totalNapDurationInSeconds?: number;
   deepSleepDurationInSeconds?: number;
@@ -260,6 +269,7 @@ export interface GarminPulseOxSummary {
   startTimeInSeconds: number;
   startTimeOffsetInSeconds?: number;
   timeOffsetSpo2Values?: Record<string, number>;
+  onDemand?: boolean;
 }
 
 export interface GarminRespirationSummary {
@@ -355,15 +365,6 @@ export type GarminHealthSummaryType =
   | 'hrv'
   | 'bloodPressures'
   | 'skinTemp';
-
-export interface GarminHealthNotification {
-  userId: string;
-  callbackURL: string;
-}
-
-export type GarminHealthPingPayload = Partial<
-  Record<GarminHealthSummaryType, GarminHealthNotification[]>
->;
 
 // Polar API Types
 export interface PolarOAuthTokenResponse {

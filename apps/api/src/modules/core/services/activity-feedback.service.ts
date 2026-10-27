@@ -12,6 +12,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiEnvSchemaType } from '@openathlete/shared';
 
 import { ActivityFeedbackCompletedEvent } from 'src/events';
+import { AiConsentRequiredException } from 'src/modules/ai/ai.errors';
 import { CaslAbilityFactory } from 'src/modules/auth';
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
 import { accessibleBy } from 'src/modules/auth/services/casl-prisma';
@@ -327,11 +328,23 @@ export class ActivityFeedbackService {
     return { success: true };
   }
 
-  async transcribeAudio(file: {
-    buffer: Buffer;
-    mimetype: string;
-    originalname?: string;
-  }): Promise<{ text: string }> {
+  async transcribeAudio(
+    user: AuthUser,
+    file: {
+      buffer: Buffer;
+      mimetype: string;
+      originalname?: string;
+    },
+  ): Promise<{ text: string }> {
+    // The recording goes to OpenAI: only with the user's permission
+    const { aiDataSharingConsentAt } = await this.prisma.user.findUniqueOrThrow(
+      {
+        where: { userId: user.userId },
+        select: { aiDataSharingConsentAt: true },
+      },
+    );
+    if (!aiDataSharingConsentAt) throw new AiConsentRequiredException();
+
     try {
       let fileForOpenAI: File | Buffer;
 

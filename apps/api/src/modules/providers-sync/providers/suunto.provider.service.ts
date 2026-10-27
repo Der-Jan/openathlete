@@ -21,7 +21,10 @@ import { ActivityStream, ApiEnvSchemaType } from '@openathlete/shared';
 
 import { ActivityFileParserService } from '../../core/helpers/activity-file-parser.service';
 import { FitFileSegment } from '../../core/helpers/activity-parser.interface';
-import { calculateSegmentMetrics } from '../../core/helpers/activity-segment';
+import {
+  calculateSegmentMetrics,
+  toSegmentColumns,
+} from '../../core/helpers/activity-segment';
 import { compressActivityStream } from '../../core/helpers/activity-stream';
 import {
   roundCadence,
@@ -899,7 +902,7 @@ export class SuuntoProviderService
         orderIndex: index,
         startTimeSeconds: Math.round(segment.startTimeSeconds),
         endTimeSeconds: Math.round(segment.endTimeSeconds),
-        ...metrics,
+        ...toSegmentColumns(metrics),
         eventActivityId: eventActivityId,
       });
     });

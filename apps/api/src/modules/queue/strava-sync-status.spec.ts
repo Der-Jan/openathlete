@@ -44,6 +44,7 @@ describe('Strava import progress', () => {
         {} as never,
         {} as never,
         recent as never,
+        {} as never,
       ),
     };
   }

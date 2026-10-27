@@ -101,6 +101,8 @@ business credentials. Users can always import FIT and GPX files instead (Setting
 
 Set the client ID and secret in `.env` (`STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`...); Suunto also needs `SUUNTO_SUBSCRIPTION_KEY`. A provider appears in the app once all its settings are present. Callback URLs default to `APP_URL/auth/callback/<provider>` and webhooks to `APP_URL/api/provider/<provider>/webhook`; the `*_REDIRECT_URI` and `POLAR_WEBHOOK_URL` variables override them.
 
+For Garmin, open the [endpoint configuration](https://apis.garmin.com/tools/endpoints) and point every summary type you enable to `APP_URL/api/provider/garmin/webhook`, as **Ping** notifications. Enable at least `Deregistration` and `User Permissions` (Garmin requires them), `Activities` and `Activity Files`, and the health summaries you want (`Dailies`, `Sleeps`, `HRV`...). The worker pulls each notification once, even for users who turned import off, as Garmin counts unanswered notifications against the app.
+
 Activities from connected devices, including historical imports, are fetched by background jobs that run inside the API container (`ENABLE_ACTIVITY_IMPORT` and `ENABLE_ACTIVITY_PROCESSING`, both on by default). To run them in a separate worker instead, start a second API container with these two variables set to `true` and `SKIP_MIGRATIONS=true`, and set them to `false` on the API.
 
 ### Importing Apple Health recovery metrics
@@ -205,6 +207,7 @@ removal are outside the implemented protocol.
 AI features (workout generation and editing, post-activity questions, feedback analysis, load estimation) run on any of 200+ providers: OpenAI, Anthropic, Google, Mistral, OpenRouter, Groq, DeepSeek, OVHcloud, Scaleway and more.
 
 - **Each user can bring their own key**: in **Settings > AI**, they add an API key and pick the model of each feature. Keys are encrypted with a key derived from `HASH_PEPPER` and never sent back to the browser.
+- **Nothing runs without the user's permission**: before the first AI feature, the app shows what it sends and to which provider, and asks the user to allow it. Until they do, no AI runs on their data, including the automatic questions after an activity. They can withdraw it in **Settings > AI**.
 - **Instance keys** (optional) are used by users without a key of their own. Set the provider's usual variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`...) and the model:
 
   ```properties
