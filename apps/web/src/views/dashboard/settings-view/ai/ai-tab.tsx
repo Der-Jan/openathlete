@@ -7,6 +7,7 @@ import { purchaseChannel } from '@/utils/capacitor';
 import { ShieldCheck } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
+import { AiDataSharingSection } from './ai-data-sharing-section';
 import { AiKeysSection } from './ai-keys-section';
 import { AiModelsSection } from './ai-models-section';
 import { AiUsageSection } from './ai-usage-section';
@@ -50,6 +51,8 @@ export function AiTab() {
           </AlertDescription>
         </Alert>
       )}
+
+      <AiDataSharingSection />
 
       {access && <AiUsageSection access={access} />}
 

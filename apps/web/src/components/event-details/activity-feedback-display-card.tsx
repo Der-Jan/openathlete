@@ -1,4 +1,4 @@
-import { useAiAccessQuery } from '@/api/ai-settings';
+import { athleteAiTaskUsable, useAiAccessQuery } from '@/api/ai-settings';
 import { AiSetupDialog } from '@/components/ai-settings';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,7 @@ export function ActivityFeedbackDisplayCard({ event }: P) {
 
   // No AI for the athlete and no questions were generated
   const hasNoAccess =
-    aiAccess?.tasks[AiTask.POST_ACTIVITY_QUESTIONS].available === false;
+    athleteAiTaskUsable(aiAccess, AiTask.POST_ACTIVITY_QUESTIONS) === false;
   const hasNoQuestions = questions.length === 0;
   const showPaywallAlert = hasNoAccess && hasNoQuestions;
 

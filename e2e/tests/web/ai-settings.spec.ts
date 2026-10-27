@@ -41,6 +41,18 @@ test('adds an AI key and runs features on it', async ({ page, request }) => {
   // The first key became the default model of every feature
   await expect(page.getByText('fake-coach').first()).toBeVisible();
   await expect(page.getByText('Your key').first()).toBeVisible();
+
+  // Nothing is sent to the provider until the user allows it, and the page
+  // says what would be sent and to whom
+  const sharing = page.locator('[data-ai-data-sharing]');
+  await expect(
+    page.getByText('Not allowed: AI features are off', { exact: false }),
+  ).toBeVisible();
+  await expect(sharing).toContainText('Your custom endpoint (your key)');
+  await page.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(page.getByText('AI features are on.')).toBeVisible();
+  await page.getByRole('button', { name: 'Withdraw permission' }).click();
+  await expect(page.getByText('AI features are off.')).toBeVisible();
   expect(problems).toEqual([]);
 });
 

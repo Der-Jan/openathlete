@@ -1,3 +1,8 @@
+import { useAiAccessQuery } from '@/api/ai-settings';
+import {
+  AiSetupDialog,
+  needsAiDataSharingConsent,
+} from '@/components/ai-settings';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { m } from '@/paraglide/messages';
@@ -29,6 +34,9 @@ export function AudioRecorder({
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const isNative = isCapacitor();
+  // The recording goes to an AI provider to be transcribed
+  const { data: aiAccess } = useAiAccessQuery();
+  const [consentOpen, setConsentOpen] = useState(false);
 
   useEffect(() => {
     checkMicrophonePermission();
@@ -75,6 +83,10 @@ export function AudioRecorder({
   };
 
   const startRecording = async () => {
+    if (needsAiDataSharingConsent(aiAccess)) {
+      setConsentOpen(true);
+      return;
+    }
     try {
       if (isNative && typeof MediaRecorder !== 'undefined') {
         try {
@@ -403,27 +415,30 @@ export function AudioRecorder({
   }
 
   return (
-    <Button
-      type="button"
-      variant={isRecording ? 'destructive' : 'outline'}
-      size="sm"
-      onClick={handleClick}
-      disabled={disabled || isTranscribing}
-      className="gap-2"
-    >
-      {isRecording ? (
-        <>
-          <MicOff className="h-4 w-4" />
-          {m.stop_recording()}
-        </>
-      ) : (
-        <>
-          <Mic className="h-4 w-4" />
-          {hasPermission === false
-            ? m.grant_microphone_permission()
-            : m.start_recording()}
-        </>
-      )}
-    </Button>
+    <>
+      <AiSetupDialog open={consentOpen} onOpenChange={setConsentOpen} />
+      <Button
+        type="button"
+        variant={isRecording ? 'destructive' : 'outline'}
+        size="sm"
+        onClick={handleClick}
+        disabled={disabled || isTranscribing}
+        className="gap-2"
+      >
+        {isRecording ? (
+          <>
+            <MicOff className="h-4 w-4" />
+            {m.stop_recording()}
+          </>
+        ) : (
+          <>
+            <Mic className="h-4 w-4" />
+            {hasPermission === false
+              ? m.grant_microphone_permission()
+              : m.start_recording()}
+          </>
+        )}
+      </Button>
+    </>
   );
 }

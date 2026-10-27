@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  AiAccessDto,
+  AiFeatureTask,
   AiTask,
   CreateAiCredentialDto,
   UpdateAiModelPreferencesDto,
@@ -43,13 +45,35 @@ export function useAiAccessQuery(athleteId?: number) {
   });
 }
 
-/** Whether the user can run an AI feature they trigger themselves. */
+/**
+ * Whether the user can run an AI feature they trigger themselves: a model is
+ * set up and they allowed their data to be sent to it. Otherwise the feature
+ * opens AiSetupDialog, which asks for whichever is missing.
+ */
 export function useAiTaskAvailable(task: Exclude<AiTask, AiTask.DEFAULT>): {
   available: boolean;
   isLoading: boolean;
 } {
   const { data, isLoading } = useAiAccessQuery();
-  return { available: data?.tasks[task].available ?? false, isLoading };
+  return {
+    available: Boolean(data?.tasks[task].available && data.dataSharingConsent),
+    isLoading,
+  };
+}
+
+/**
+ * Whether a background feature runs on an athlete's activities (access
+ * fetched with their athleteId): a model is set up for them or a coach, and
+ * the athlete allowed their data to be sent to it. Undefined while loading.
+ */
+export function athleteAiTaskUsable(
+  access: AiAccessDto | undefined,
+  task: AiFeatureTask,
+): boolean | undefined {
+  if (!access) return undefined;
+  return (
+    access.tasks[task].available && access.athleteDataSharingConsent !== false
+  );
 }
 
 /** Keys, model choices and access all change together. */
@@ -97,5 +121,19 @@ export function useUpdateAiModelPreferencesMutation() {
     mutationFn: (body: UpdateAiModelPreferencesDto) =>
       AiSettingsAPI.updateModelPreferences(body),
     onSuccess: invalidate,
+  });
+}
+
+/** Allows or withdraws sending the user's data to AI providers */
+export function useAiDataSharingMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (allow: boolean) =>
+      allow
+        ? AiSettingsAPI.allowDataSharing()
+        : AiSettingsAPI.withdrawDataSharing(),
+    // Access per athlete depends on it too
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: aiSettingsKeys.all }),
   });
 }
