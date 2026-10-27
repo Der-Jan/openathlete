@@ -1,4 +1,6 @@
 export interface GarminWorkout {
+  /** Set by Garmin; required in updates */
+  workoutId?: number;
   ownerId?: number;
   workoutName: string;
   description: string;
@@ -43,6 +45,7 @@ export interface GarminWorkoutStep {
   drillType: string | null;
   equipmentType: string | null;
   exerciseCategory: string | null;
+  exerciseName: string | null;
   weightValue: number | null;
   weightDisplayUnit: string | null;
 }

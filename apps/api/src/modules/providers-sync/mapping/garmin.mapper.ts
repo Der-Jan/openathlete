@@ -1,21 +1,21 @@
 import { SportType } from '@openathlete/database';
 import type {
   NormalizedWorkout,
-  NormalizedWorkoutStep,
   NormalizedWorkoutStepTarget,
   WorkoutDto,
+  WorkoutStepDto,
 } from '@openathlete/shared';
 import { WORKOUT_STEP_TYPE } from '@openathlete/shared';
 
 import {
-  mapDurationTypeToGarmin,
+  GarminMetrics,
+  GarminZone,
+  mapDurationToGarmin,
   mapSportToGarmin,
   mapStepTypeToGarminIntensity,
-  mapTargetTypeToGarmin,
-  mapTargetValue,
+  mapTargetToGarmin,
 } from './garmin-helpers';
 import type {
-  GarminSegment,
   GarminStep,
   GarminWorkout,
   GarminWorkoutRepeatStep,
@@ -23,185 +23,150 @@ import type {
 } from './garmin.types';
 import type { ProviderPlannedWorkoutPayload } from './index';
 
+// Shown to the user in Garmin Connect; 20 characters at most
 const WORKOUT_PROVIDER = 'OpenAthlete';
-const WORKOUT_SOURCE_ID = 'openathlete';
+const WORKOUT_SOURCE_ID = 'OpenAthlete';
 
-function truncateDescription(
-  description: string | null,
-  maxLength: number,
-): string {
-  if (!description) return '';
-  return description.length > maxLength
-    ? description.substring(0, maxLength)
-    : description;
+/** Garmin limits: 100 steps per sport, repeats counted */
+export const GARMIN_MAX_STEPS = 100;
+
+export interface GarminMappingContext {
+  metrics?: GarminMetrics;
+  zones?: GarminZone[];
 }
 
-function mapNormalizedStepToGarmin(
-  step: NormalizedWorkoutStep,
+function truncate(text: string | null | undefined, maxLength: number): string {
+  if (!text) return '';
+  return text.length > maxLength ? text.substring(0, maxLength) : text;
+}
+
+function mapStep(
+  step: WorkoutStepDto,
   stepOrder: number,
   sport: SportType,
-  metrics?: Record<string, { value: number } | number>,
+  context: GarminMappingContext,
 ): GarminWorkoutStep {
   const intensity = mapStepTypeToGarminIntensity(step.stepType, sport);
-  const durationType = mapDurationTypeToGarmin(
+  const duration = mapDurationToGarmin(
     step.durationType,
+    step.durationValue,
     sport,
     intensity,
   );
-  const primaryTarget = step.targets?.[0];
-  const targetMapping = primaryTarget
-    ? mapTargetValue(primaryTarget, sport, metrics)
-    : {
-        targetValue: null,
-        targetValueLow: null,
-        targetValueHigh: null,
-        targetValueType: null,
-      };
+  const targets = (step.targets ?? []) as NormalizedWorkoutStepTarget[];
+  const mapped = targets.map((target) =>
+    mapTargetToGarmin(target, sport, context.metrics, context.zones),
+  );
+  // The first target the watch can follow; weights and notes from any
+  const primary = mapped.find(
+    (target) => target.targetType || target.secondaryTargetType,
+  );
+  const weightValue =
+    mapped.find((target) => target.weightValue !== null)?.weightValue ?? null;
 
-  const garminTargetType = primaryTarget
-    ? mapTargetTypeToGarmin(primaryTarget.targetType, sport)
-    : null;
+  const description = [
+    step.notes || step.name,
+    duration.note,
+    ...mapped.map((target) => target.note),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return {
     type: 'WorkoutStep',
     stepOrder,
     intensity,
-    description: truncateDescription(step.notes ?? step.name ?? null, 512),
-    durationType,
-    durationValue: step.durationValue ?? null,
-    durationValueType: null,
-    targetType: garminTargetType,
-    targetValue: targetMapping.targetValue,
-    targetValueLow: targetMapping.targetValueLow,
-    targetValueHigh: targetMapping.targetValueHigh,
-    targetValueType: targetMapping.targetValueType,
-    secondaryTargetType: null,
+    description: truncate(description, 512),
+    durationType: duration.durationType,
+    durationValue: duration.durationValue,
+    durationValueType: duration.durationValueType,
+    targetType: primary?.targetType ?? null,
+    targetValue: null,
+    targetValueLow: primary?.targetValueLow ?? null,
+    targetValueHigh: primary?.targetValueHigh ?? null,
+    targetValueType: primary?.targetValueType ?? null,
+    secondaryTargetType: primary?.secondaryTargetType ?? null,
     secondaryTargetValue: null,
-    secondaryTargetValueLow: null,
-    secondaryTargetValueHigh: null,
+    secondaryTargetValueLow: primary?.secondaryTargetValueLow ?? null,
+    secondaryTargetValueHigh: primary?.secondaryTargetValueHigh ?? null,
     secondaryTargetValueType: null,
     strokeType: null,
     drillType: null,
     equipmentType: null,
     exerciseCategory: null,
-    weightValue: null,
-    weightDisplayUnit: null,
+    exerciseName: null,
+    weightValue,
+    weightDisplayUnit: weightValue !== null ? 'KILOGRAM' : null,
   };
 }
 
 export function mapWorkoutDtoToGarmin(
-  ownerId: number | null,
   workout: WorkoutDto,
   sport: SportType,
   title: string | null = null,
   description: string | null = null,
-  metrics?: Record<string, { value: number } | number>,
+  context: GarminMappingContext = {},
 ): GarminWorkout {
   const garminSport = mapSportToGarmin(sport);
-  const isSwimming = sport === SportType.SWIMMING;
-  const workoutName = title || 'Workout';
-  const workoutDescription = truncateDescription(description, 1024);
+  const isSwimming = garminSport === 'LAP_SWIMMING';
 
   const steps: GarminStep[] = [];
   let stepOrder = 1;
 
-  for (const step of workout.steps || []) {
-    if (step.stepType === WORKOUT_STEP_TYPE.REPEAT && step.repeatBlock) {
-      const repeatSteps: GarminWorkoutStep[] = [];
-      let repeatStepOrder = stepOrder;
+  for (const step of (workout.steps ?? []) as WorkoutStepDto[]) {
+    if (step.stepType === WORKOUT_STEP_TYPE.REPEAT) {
+      const children = (step.repeatBlock?.childSteps ?? []) as WorkoutStepDto[];
+      if (children.length === 0) continue;
 
-      for (const childStep of step.repeatBlock.childSteps || []) {
-        const normalizedChild: NormalizedWorkoutStep = {
-          orderIndex: repeatStepOrder,
-          stepType: childStep.stepType,
-          name: childStep.name ?? null,
-          notes: childStep.notes ?? null,
-          durationType: childStep.durationType,
-          durationValue: childStep.durationValue ?? null,
-          durationTarget: childStep.durationTarget ?? null,
-          targets: (childStep.targets || []).map(
-            (t: NormalizedWorkoutStepTarget) => ({
-              targetType: t.targetType,
-              targetMin: t.targetMin ?? null,
-              targetMax: t.targetMax ?? null,
-              targetValue: t.targetValue ?? null,
-              metricType: t.metricType ?? null,
-            }),
-          ),
-        };
-
-        repeatSteps.push(
-          mapNormalizedStepToGarmin(
-            normalizedChild,
-            repeatStepOrder,
-            sport,
-            metrics,
-          ),
-        );
-        repeatStepOrder += 1;
-      }
-
-      const repeatStep: GarminWorkoutRepeatStep = {
+      const repeatOrder = stepOrder;
+      stepOrder += 1;
+      const repeatSteps = children.map((child) =>
+        mapStep(child, stepOrder++, sport, context),
+      );
+      const repeat: GarminWorkoutRepeatStep = {
         type: 'WorkoutRepeatStep',
-        stepOrder,
+        stepOrder: repeatOrder,
         repeatType: 'REPEAT_UNTIL_STEPS_CMPLT',
-        repeatValue: step.repeatBlock.repetitions,
+        repeatValue: step.repeatBlock?.repetitions ?? 1,
         skipLastRestStep: isSwimming,
         steps: repeatSteps,
       };
-
-      steps.push(repeatStep);
-      stepOrder = repeatStepOrder;
+      steps.push(repeat);
     } else {
-      const normalizedStep: NormalizedWorkoutStep = {
-        orderIndex: stepOrder,
-        stepType: step.stepType,
-        name: step.name ?? null,
-        notes: step.notes ?? null,
-        durationType: step.durationType,
-        durationValue: step.durationValue ?? null,
-        durationTarget: step.durationTarget ?? null,
-        targets: (step.targets || []).map((t: NormalizedWorkoutStepTarget) => ({
-          targetType: t.targetType,
-          targetMin: t.targetMin ?? null,
-          targetMax: t.targetMax ?? null,
-          targetValue: t.targetValue ?? null,
-          metricType: t.metricType ?? null,
-        })),
-      };
-
-      steps.push(
-        mapNormalizedStepToGarmin(normalizedStep, stepOrder, sport, metrics),
-      );
-      stepOrder += 1;
+      steps.push(mapStep(step, stepOrder++, sport, context));
     }
   }
 
-  const segment: GarminSegment = {
-    segmentOrder: 1,
-    sport: garminSport,
-    poolLength: null,
-    poolLengthUnit: null,
-    steps: steps as GarminWorkoutStep[],
-  };
+  // Send-off times and pace targets need a pool unit; the pool length stays
+  // unspecified, so the workout runs in any pool
+  const usesSwimPace =
+    isSwimming &&
+    steps
+      .flatMap((step) =>
+        step.type === 'WorkoutRepeatStep' ? step.steps : [step],
+      )
+      .some((step) => step.secondaryTargetType === 'PACE_ZONE');
+  const poolLengthUnit = usesSwimPace ? 'METER' : null;
 
-  const workoutPayload: GarminWorkout = {
-    workoutName,
-    description: workoutDescription,
+  return {
+    workoutName: truncate(title || 'Workout', 100),
+    description: truncate(description, 1024),
     sport: garminSport,
     poolLength: null,
-    poolLengthUnit: null,
+    poolLengthUnit,
     workoutProvider: WORKOUT_PROVIDER,
     workoutSourceId: WORKOUT_SOURCE_ID,
     isSessionTransitionEnabled: false,
-    segments: [segment],
+    segments: [
+      {
+        segmentOrder: 1,
+        sport: garminSport,
+        poolLength: null,
+        poolLengthUnit,
+        steps,
+      },
+    ],
   };
-
-  if (typeof ownerId === 'number') {
-    workoutPayload.ownerId = ownerId;
-  }
-
-  return workoutPayload;
 }
 
 export function mapToGarmin(

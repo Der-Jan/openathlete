@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
 
-import { Prisma } from '@openathlete/database';
 import type { NormalizedWorkout } from '@openathlete/shared';
 
 import { PrismaService } from '../prisma/services/prisma.service';
@@ -85,10 +84,11 @@ export class ProviderExportService {
         athleteId: athleteId,
         provider: providerEnum,
         workoutId: workoutId,
-        NOT: { plannedDate: { not: plannedDate } },
+        NOT: { plannedDate: plannedDate },
       },
     });
 
+    // The session moved to another day: remove it from the old one
     for (const stale of staleExports) {
       if (adapter.deletePlannedWorkout) {
         try {
@@ -105,22 +105,39 @@ export class ProviderExportService {
         }
       }
 
-      await this.prisma.providerWorkoutExport.delete({
+      await this.prisma.providerWorkoutExport.deleteMany({
         where: {
           providerWorkoutExportId: stale.providerWorkoutExportId,
         },
       });
     }
 
-    const record = await this.prisma.providerWorkoutExport.upsert({
-      where: {
-        athleteId_provider_workoutId_plannedDate: {
-          athleteId: athleteId,
-          provider: providerEnum,
-          workoutId: workoutId,
-          plannedDate: plannedDate,
-        },
+    const key = {
+      athleteId_provider_workoutId_plannedDate: {
+        athleteId: athleteId,
+        provider: providerEnum,
+        workoutId: workoutId,
+        plannedDate: plannedDate,
       },
+    };
+
+    // Unchanged since its last successful export: nothing to send. Checked
+    // before the record is marked pending, which would hide the success
+    const existing = await this.prisma.providerWorkoutExport.findUnique({
+      where: key,
+    });
+    if (
+      existing?.status === 'success' &&
+      existing.contentHash === contentHash
+    ) {
+      this.logger.debug(
+        `Skip export (unchanged) athlete=${athleteId} provider=${provider} workout=${workoutId} date=${date}`,
+      );
+      return { skipped: true, externalId: existing.externalId ?? undefined };
+    }
+
+    const record = await this.prisma.providerWorkoutExport.upsert({
+      where: key,
       create: {
         athleteId: athleteId,
         provider: providerEnum,
@@ -134,24 +151,13 @@ export class ProviderExportService {
         contentHash: contentHash,
         rawPayload: payload as object,
         status: 'pending',
-        lastSyncAt: null,
         errorCode: null,
         errorMessage: null,
       },
     });
 
-    // Idempotency check: if unchanged and success, skip
-    if (record.status === 'success' && record.contentHash === contentHash) {
-      this.logger.debug(
-        `Skip export (unchanged) athlete=${athleteId} provider=${provider} workout=${workoutId} date=${date}`,
-      );
-      return { skipped: true, externalId: record.externalId ?? undefined };
-    }
-
     try {
-      const previousScheduleId =
-        (record as unknown as { scheduleId?: string | null }).scheduleId ??
-        undefined;
+      const previousScheduleId = record.scheduleId ?? undefined;
 
       const result = await adapter.upsertPlannedWorkout({
         athleteId,
@@ -162,7 +168,8 @@ export class ProviderExportService {
         previousScheduleId,
       });
 
-      await this.prisma.providerWorkoutExport.update({
+      // updateMany: a concurrent deletion of the export is not an error
+      await this.prisma.providerWorkoutExport.updateMany({
         where: {
           providerWorkoutExportId: record.providerWorkoutExportId,
         },
@@ -171,15 +178,13 @@ export class ProviderExportService {
           status: 'success',
           lastSyncAt: new Date(),
           attemptCount: { increment: 1 },
-          ...(result.scheduleId !== undefined && {
-            scheduleId: result.scheduleId,
-          }),
-        } as Prisma.ProviderWorkoutExportUpdateInput,
+          scheduleId: result.scheduleId ?? null,
+        },
       });
 
       return { skipped: false, externalId: result.externalId };
     } catch (err) {
-      await this.prisma.providerWorkoutExport.update({
+      await this.prisma.providerWorkoutExport.updateMany({
         where: {
           providerWorkoutExportId: record.providerWorkoutExportId,
         },
