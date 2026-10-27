@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { Prisma } from '@openathlete/database';
 
+import { AccountDeletingEvent } from 'src/events';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 import { StripeService } from 'src/modules/subscription/services/stripe.service';
 
@@ -24,6 +26,8 @@ export class AccountDeletionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripeService: StripeService,
+    // Absent from the CLI, which loads no listeners
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   async deleteAccount(userId: number): Promise<void> {
@@ -50,6 +54,13 @@ export class AccountDeletionService {
     }
 
     const athleteId = user.athlete?.athleteId;
+
+    // Providers are told while the tokens still exist (Garmin requires it)
+    await this.eventEmitter?.emitAsync(
+      AccountDeletingEvent.SLUG,
+      new AccountDeletingEvent({ userId, athleteId }),
+    );
+
     await this.prisma.$transaction(
       async (tx) => {
         const templateEvents = await tx.eventTemplate.findMany({
