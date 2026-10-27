@@ -1266,6 +1266,7 @@
   "oauth_consent_redirecting": "Taking you back to your agent…",
   "oauth_consent_failed": "Your answer could not be sent: try again",
   "ai_settings_title": "Bring your own AI",
+  "ai_error_consent_required": "Allow your data to be sent to the AI provider in Settings > AI to use this feature.",
   "ai_settings_description": "Connect an API key from the AI provider of your choice and pick the model each feature uses. Keys are encrypted and never displayed again; your data is sent only to the provider you choose.",
   "ai_hosted_included_title": "AI included",
   "ai_hosted_included_description": "Features without a key of yours run on this instance's AI keys.",

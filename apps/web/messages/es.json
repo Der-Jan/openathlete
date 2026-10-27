@@ -1266,6 +1266,7 @@
   "oauth_consent_redirecting": "Volviendo a tu agente…",
   "oauth_consent_failed": "No se pudo enviar tu respuesta: inténtalo de nuevo",
   "ai_settings_title": "Usa tu propia IA",
+  "ai_error_consent_required": "Permite el envío de tus datos al proveedor de IA en Ajustes > IA para usar esta función.",
   "ai_settings_description": "Conecta una clave API del proveedor de IA que prefieras y elige el modelo que usa cada función. Las claves se cifran y no se vuelven a mostrar; tus datos solo se envían al proveedor elegido.",
   "ai_hosted_included_title": "IA incluida",
   "ai_hosted_included_description": "Las funciones sin una clave tuya usan las claves de IA de esta instancia.",

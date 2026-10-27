@@ -1,6 +1,7 @@
 import { AiTask, CUSTOM_AI_PROVIDER } from '@openathlete/shared';
 
 import {
+  AiConsentRequiredException,
   AiHostedQuotaExceededException,
   AiNotConfiguredException,
 } from '../ai.errors';
@@ -53,6 +54,8 @@ interface Setup {
   coaches?: number[];
   /** Users whose monthly allowance on the instance keys is used up */
   quotaExhausted?: number[];
+  /** Users who have not allowed their data to be sent to AI providers */
+  notConsented?: number[];
 }
 
 function setup({
@@ -63,8 +66,18 @@ function setup({
   env = {},
   coaches = [],
   quotaExhausted = [],
+  notConsented = [],
 }: Setup = {}) {
   const prisma = {
+    user: {
+      findMany: jest.fn(({ where }: { where: { userId: { in: number[] } } }) =>
+        Promise.resolve(
+          where.userId.in
+            .filter((userId) => !notConsented.includes(userId))
+            .map((userId) => ({ userId })),
+        ),
+      ),
+    },
     aiModelPreference: {
       findMany: jest.fn(
         ({ where }: { where: { userId: number; task: { in: AiTask[] } } }) =>
@@ -457,6 +470,80 @@ describe('AiModelResolverService', () => {
       await expect(
         resolver.tryResolveForAthlete(AiTask.FEEDBACK_EXTRACTION, 100),
       ).resolves.toBeNull();
+    });
+  });
+
+  describe('permission to send data to AI providers', () => {
+    const ownKey = preference(
+      1,
+      AiTask.DEFAULT,
+      'openai',
+      'gpt-5-mini',
+      'sk-1',
+    );
+
+    it('asks for it before a feature the user triggers', async () => {
+      const { resolver } = setup({ preferences: [ownKey], notConsented: [1] });
+
+      await expect(
+        resolver.resolveForUser(AiTask.EVENT_GENERATION, 1),
+      ).rejects.toBeInstanceOf(AiConsentRequiredException);
+    });
+
+    it('still says when no AI is set up at all', async () => {
+      const { resolver } = setup({ notConsented: [1] });
+
+      await expect(
+        resolver.resolveForUser(AiTask.EVENT_GENERATION, 1),
+      ).rejects.toBeInstanceOf(AiNotConfiguredException);
+    });
+
+    it("runs no background work on an athlete's data without theirs", async () => {
+      const { resolver } = setup({
+        coaches: [2],
+        notConsented: [1],
+        preferences: [
+          ownKey,
+          preference(2, AiTask.DEFAULT, 'openai', 'gpt-5-mini', 'sk-coach'),
+        ],
+      });
+
+      await expect(
+        resolver.tryResolveForAthlete(AiTask.FEEDBACK_EXTRACTION, 100),
+      ).resolves.toBeNull();
+    });
+
+    it("skips a coach's key until that coach allowed it too", async () => {
+      const { resolver } = setup({
+        coaches: [2, 3],
+        notConsented: [2],
+        preferences: [
+          preference(2, AiTask.DEFAULT, 'openai', 'gpt-5-mini', 'sk-coach2'),
+          preference(3, AiTask.DEFAULT, 'openai', 'gpt-5-mini', 'sk-coach3'),
+        ],
+      });
+
+      await expect(
+        resolver.tryResolveForAthlete(AiTask.FEEDBACK_EXTRACTION, 100),
+      ).resolves.toMatchObject({ userId: 3 });
+    });
+
+    it('names the providers before the user allows it', async () => {
+      const { resolver } = setup({
+        preferences: [ownKey],
+        notConsented: [1],
+        env: { OPENAI_API_KEY: 'sk-instance' },
+      });
+
+      const access = await resolver.describeAccess(1, 100);
+
+      expect(access.tasks[AiTask.EVENT_GENERATION]).toMatchObject({
+        available: true,
+        provider: 'openai',
+      });
+      expect(access.dataSharingConsent).toBe(false);
+      expect(access.athleteDataSharingConsent).toBe(false);
+      expect(access.transcriptionProvider).toBe('openai');
     });
   });
 

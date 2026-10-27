@@ -19,6 +19,17 @@ async function addFakeLlmKey(
   return (await response.json()) as { aiCredentialId: number };
 }
 
+/** The user allows their data to be sent to AI providers */
+async function allowDataSharing(
+  request: APIRequestContext,
+  accessToken: string,
+) {
+  const response = await request.post(`${API_URL}/ai/consent`, {
+    headers: apiHeaders(undefined, accessToken),
+  });
+  expect(response.status(), await response.text()).toBe(200);
+}
+
 async function generateEvent(request: APIRequestContext, accessToken: string) {
   return request.post(`${API_URL}/agent/ai/events/generate`, {
     headers: apiHeaders(undefined, accessToken),
@@ -97,6 +108,12 @@ test('generates a workout on the user’s own AI key', async ({ request }) => {
     modelId: 'fake-coach',
   });
 
+  // Nothing leaves for the provider before the user allows it
+  const refused = await generateEvent(request, athlete.accessToken);
+  expect(refused.status()).toBe(403);
+  expect(await refused.json()).toMatchObject({ code: 'AI_CONSENT_REQUIRED' });
+  await allowDataSharing(request, athlete.accessToken);
+
   const generation = await generateEvent(request, athlete.accessToken);
   expect(generation.status(), await generation.text()).toBe(201);
   expect(await generation.json()).toMatchObject({
@@ -159,6 +176,7 @@ test('reports a key the provider rejects', async ({ request }) => {
       preferences: [{ task: 'DEFAULT', aiCredentialId, modelId: 'fake-coach' }],
     },
   });
+  await allowDataSharing(request, athlete.accessToken);
   const generation = await generateEvent(request, athlete.accessToken);
   expect(generation.status()).toBe(422);
   expect(await generation.json()).toMatchObject({

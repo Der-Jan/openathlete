@@ -1266,6 +1266,7 @@
   "oauth_consent_redirecting": "Redirecionando você de volta ao seu agente…",
   "oauth_consent_failed": "Não foi possível enviar sua resposta: tente novamente",
   "ai_settings_title": "Use sua própria IA",
+  "ai_error_consent_required": "Permita o envio dos seus dados ao provedor de IA em Configurações > IA para usar este recurso.",
   "ai_settings_description": "Conecte uma chave de API do provedor de IA da sua escolha e selecione o modelo que cada recurso usa. As chaves são criptografadas e nunca exibidas novamente; seus dados são enviados apenas ao provedor que você escolher.",
   "ai_hosted_included_title": "IA incluída",
   "ai_hosted_included_description": "Os recursos sem uma chave sua usam as chaves de IA desta instância.",

@@ -1266,6 +1266,7 @@
   "oauth_consent_redirecting": "Retour vers votre agent…",
   "oauth_consent_failed": "Votre réponse n'a pas pu être envoyée : réessayez",
   "ai_settings_title": "Utilisez votre propre IA",
+  "ai_error_consent_required": "Autorisez l'envoi de vos données au fournisseur d'IA dans Réglages > IA pour utiliser cette fonctionnalité.",
   "ai_settings_description": "Connectez une clé API du fournisseur d'IA de votre choix et choisissez le modèle utilisé par chaque fonctionnalité. Les clés sont chiffrées et ne sont plus jamais affichées ; vos données ne sont envoyées qu'au fournisseur choisi.",
   "ai_hosted_included_title": "IA incluse",
   "ai_hosted_included_description": "Les fonctionnalités sans clé de votre part utilisent les clés d'IA de cette instance.",

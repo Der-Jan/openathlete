@@ -18,6 +18,7 @@ import {
 } from '@nestjs/swagger';
 
 import { UserTypeGuard } from 'src/modules/auth';
+import { AuthUser, JwtUser } from 'src/modules/auth/decorators/user.decorator';
 
 import { ActivityFeedbackService } from '../services/activity-feedback.service';
 
@@ -125,7 +126,15 @@ export class ActivityFeedbackController {
       },
     },
   })
-  async transcribeAudio(@UploadedFile() file: MulterFile) {
+  @ApiResponse({
+    status: 403,
+    description:
+      'AI_CONSENT_REQUIRED: the user has not allowed their data to be sent to AI providers',
+  })
+  async transcribeAudio(
+    @JwtUser() user: AuthUser,
+    @UploadedFile() file: MulterFile,
+  ) {
     if (!file) {
       throw new BadRequestException('No audio file provided');
     }
@@ -151,6 +160,6 @@ export class ActivityFeedbackController {
       );
     }
 
-    return this.activityFeedbackService.transcribeAudio(file);
+    return this.activityFeedbackService.transcribeAudio(user, file);
   }
 }
