@@ -2,7 +2,7 @@ import {
   useGetActivityFeedbackQuestionsQuery,
   useUnskipFeedbackMutation,
 } from '@/api/activity-feedback';
-import { useAiAccessQuery } from '@/api/ai-settings';
+import { athleteAiTaskUsable, useAiAccessQuery } from '@/api/ai-settings';
 import { useUpdateEventMutation } from '@/api/event';
 import { AiSetupDialog } from '@/components/ai-settings';
 import { FormProvider, RHFRpe, RHFTextarea } from '@/components/hook-form';
@@ -58,7 +58,7 @@ export function ActivityQuickEditCard({
 
   // Check if athlete or coach has access and no questions were generated
   const hasNoAccess =
-    aiAccess?.tasks[AiTask.POST_ACTIVITY_QUESTIONS].available === false;
+    athleteAiTaskUsable(aiAccess, AiTask.POST_ACTIVITY_QUESTIONS) === false;
   const hasNoQuestions = questions.length === 0;
   const showPaywallAlert = hasNoAccess && hasNoQuestions;
 

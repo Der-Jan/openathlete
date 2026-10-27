@@ -27,6 +27,24 @@ export interface SegmentMetrics {
   average_normalized_speed?: number;
 }
 
+/** Segment metrics as activity_segment columns */
+export function toSegmentColumns(metrics: SegmentMetrics) {
+  return {
+    distance: metrics.distance,
+    elevationGain: metrics.elevation_gain,
+    movingTime: metrics.moving_time,
+    averageSpeed: metrics.average_speed,
+    maxSpeed: metrics.max_speed,
+    averageCadence: metrics.average_cadence,
+    averageWatts: metrics.average_watts,
+    maxWatts: metrics.max_watts,
+    weightedAverageWatts: metrics.weighted_average_watts,
+    averageHeartrate: metrics.average_heartrate,
+    maxHeartrate: metrics.max_heartrate,
+    kilojoules: metrics.kilojoules,
+  };
+}
+
 /**
  * Calculate aggregated metrics for a segment of an activity stream
  * @param stream The full activity stream

@@ -2,7 +2,7 @@ import { ActivitySegmentType } from '@openathlete/database';
 import { ActivityStream } from '@openathlete/shared';
 
 import { ActivityParseResult } from './activity-parser.interface';
-import { calculateSegmentMetrics } from './activity-segment';
+import { calculateSegmentMetrics, toSegmentColumns } from './activity-segment';
 import { compressActivityStream } from './activity-stream';
 
 export function buildFitActivityDetails(parsed: ActivityParseResult) {
@@ -39,18 +39,7 @@ export function buildFitActivityDetails(parsed: ActivityParseResult) {
         orderIndex: index,
         startTimeSeconds: Math.round(lap.startTimeSeconds),
         endTimeSeconds: Math.round(lap.endTimeSeconds),
-        distance: metrics.distance,
-        elevationGain: metrics.elevation_gain,
-        movingTime: metrics.moving_time,
-        averageSpeed: metrics.average_speed,
-        maxSpeed: metrics.max_speed,
-        averageCadence: metrics.average_cadence,
-        averageWatts: metrics.average_watts,
-        maxWatts: metrics.max_watts,
-        weightedAverageWatts: metrics.weighted_average_watts,
-        averageHeartrate: metrics.average_heartrate,
-        maxHeartrate: metrics.max_heartrate,
-        kilojoules: metrics.kilojoules,
+        ...toSegmentColumns(metrics),
       };
     });
   return { stream: compressActivityStream(stream), segments, incomplete };

@@ -207,6 +207,7 @@ export const routes = {
       `/ai/credentials/${aiCredentialId}/test`,
     models: '/ai/models',
     access: '/ai/access',
+    consent: '/ai/consent',
   },
   messages: {
     createThread: '/messages/threads',

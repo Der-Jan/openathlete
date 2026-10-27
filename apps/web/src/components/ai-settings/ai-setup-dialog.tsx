@@ -15,6 +15,9 @@ import { purchaseChannel } from '@/utils/capacitor';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AiConsentPrompt } from './ai-data-sharing';
+import { needsAiDataSharingConsent } from './ai-data-sharing.hooks';
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -23,8 +26,9 @@ interface Props {
 }
 
 /**
- * Shown when an AI feature has no model to run on: points to the AI
- * settings, and to the plans when subscribing would include AI.
+ * Shown when an AI feature cannot run: asks the user to allow their data to
+ * be sent to the AI provider when that is all that is missing; otherwise
+ * points to the AI settings, and to the plans when subscribing includes AI.
  */
 export function AiSetupDialog({ open, onOpenChange, analyticsSource }: Props) {
   const navigate = useNavigate();
@@ -32,6 +36,25 @@ export function AiSetupDialog({ open, onOpenChange, analyticsSource }: Props) {
   const [plansOpen, setPlansOpen] = useState(false);
   const canSubscribe =
     Boolean(access?.upgradeUnlocksHosted) && purchaseChannel() !== null;
+
+  if (needsAiDataSharingConsent(access)) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{m.ai_sharing_ask_title()}</DialogTitle>
+            <DialogDescription>
+              {m.ai_sharing_ask_description()}
+            </DialogDescription>
+          </DialogHeader>
+          <AiConsentPrompt
+            access={access!}
+            onDone={() => onOpenChange(false)}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <>

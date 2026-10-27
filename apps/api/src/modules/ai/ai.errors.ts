@@ -35,6 +35,23 @@ export class AiHostedQuotaExceededException extends HttpException {
   }
 }
 
+/**
+ * The user has not allowed their data to be sent to AI providers (App Store
+ * guideline 5.1.2(i) and GDPR): the web app asks for it, then retries.
+ */
+export class AiConsentRequiredException extends HttpException {
+  constructor() {
+    super(
+      body(
+        HttpStatus.FORBIDDEN,
+        AiErrorCode.CONSENT_REQUIRED,
+        'Allow your data to be sent to the AI provider in Settings > AI to use this feature',
+      ),
+      HttpStatus.FORBIDDEN,
+    );
+  }
+}
+
 /** The provider refused the call; `code` says whether the key is at fault. */
 export class AiProviderException extends HttpException {
   constructor(

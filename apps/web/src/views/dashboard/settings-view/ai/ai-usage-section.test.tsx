@@ -52,6 +52,9 @@ function access(overrides: Partial<AiAccessDto> = {}): AiAccessDto {
       hostedBudgetUsed: 0.25,
       resetsAt: '2026-11-01T00:00:00.000Z',
     },
+    dataSharingConsent: true,
+    athleteDataSharingConsent: null,
+    transcriptionProvider: null,
     ...overrides,
   };
 }

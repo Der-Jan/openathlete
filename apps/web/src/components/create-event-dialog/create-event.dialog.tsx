@@ -248,12 +248,14 @@ export function CreateEventDialog({ open, onClose, ...rest }: P) {
   const formName = watch('name');
   const isCreateMode = !formName || formName.trim() === '';
 
-  // AI generates an empty event, or modifies a filled one
+  // AI generates an empty event, or modifies a filled one, once the user
+  // allowed their data to be sent to it
   const { data: aiAccess } = useAiAccessQuery();
-  const hasAIAccess =
+  const hasAIAccess = Boolean(
     aiAccess?.tasks[
       isCreateMode ? AiTask.EVENT_GENERATION : AiTask.EVENT_MODIFICATION
-    ].available ?? false;
+    ].available && aiAccess.dataSharingConsent,
+  );
 
   // Handle event generation (for create mode)
   const handleEventGenerated = (generatedEvent: CreateEventDto) => {

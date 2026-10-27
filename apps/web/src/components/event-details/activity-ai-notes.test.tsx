@@ -7,10 +7,18 @@ import { ActivityEvent, INJURY_STATUS } from '@openathlete/shared';
 
 import { ActivityAiNotes } from './activity-ai-notes';
 
-const ai = vi.hoisted(() => ({ available: true }));
-vi.mock('@/api/ai-settings', () => ({
+const ai = vi.hoisted(() => ({ available: true, athleteConsent: true }));
+vi.mock('@/api/ai-settings', async () => ({
+  athleteAiTaskUsable: (
+    await vi.importActual<typeof import('@/api/ai-settings/ai-settings.hooks')>(
+      '@/api/ai-settings/ai-settings.hooks',
+    )
+  ).athleteAiTaskUsable,
   useAiAccessQuery: () => ({
-    data: { tasks: { FEEDBACK_EXTRACTION: { available: ai.available } } },
+    data: {
+      tasks: { FEEDBACK_EXTRACTION: { available: ai.available } },
+      athleteDataSharingConsent: ai.athleteConsent,
+    },
   }),
 }));
 // Every message renders as its key, followed by its parameters.
@@ -36,6 +44,7 @@ describe('ActivityAiNotes', () => {
 
   beforeEach(() => {
     ai.available = true;
+    ai.athleteConsent = true;
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -68,6 +77,12 @@ describe('ActivityAiNotes', () => {
 
   it('stays silent when no AI can analyse the answers', () => {
     ai.available = false;
+    render({ feedbackQuestions: answered as never, feedbackAnalyzedAt: null });
+    expect(text()).toBe('');
+  });
+
+  it('stays silent when the athlete did not allow AI on their data', () => {
+    ai.athleteConsent = false;
     render({ feedbackQuestions: answered as never, feedbackAnalyzedAt: null });
     expect(text()).toBe('');
   });

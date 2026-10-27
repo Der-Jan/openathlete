@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/services/prisma.service';
 import { ProvidersSyncModule } from '../providers-sync/providers-sync.module';
 import { ActivityImportProcessor } from './processors/activity-import.processor';
 import { ActivityProcessingProcessor } from './processors/activity-processing.processor';
+import { GarminNotificationProcessor } from './processors/garmin-notification.processor';
 import { ProviderFullImportProcessor } from './processors/provider-full-import.processor';
 import { TrainingLoadEstimationProcessor } from './processors/training-load-estimation.processor';
 import { QueueService } from './queue.service';
@@ -275,6 +276,25 @@ function parseRedisUrl(redisUrl: string): {
       },
     }),
     BullModule.registerQueue({
+      name: 'garmin-notification',
+      defaultJobOptions: {
+        // An activity file can arrive before its activity is saved: retry
+        // for about two hours, well within the file's 24-hour validity
+        attempts: 8,
+        backoff: {
+          type: 'exponential',
+          delay: 30_000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600,
+          count: 5000,
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600,
+        },
+      },
+    }),
+    BullModule.registerQueue({
       name: 'training-load-estimation',
       defaultJobOptions: {
         attempts: 3,
@@ -299,7 +319,11 @@ function parseRedisUrl(redisUrl: string): {
     // Note: We use process.env here because ConfigService is not available
     // at module definition time. The value is validated by envValidationSchema.
     ...(process.env.ENABLE_ACTIVITY_IMPORT === 'true'
-      ? [ActivityImportProcessor, ProviderFullImportProcessor]
+      ? [
+          ActivityImportProcessor,
+          ProviderFullImportProcessor,
+          GarminNotificationProcessor,
+        ]
       : []),
     ...(process.env.ENABLE_ACTIVITY_PROCESSING === 'true'
       ? [ActivityProcessingProcessor, RecordsBackfillService]

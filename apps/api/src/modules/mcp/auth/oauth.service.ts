@@ -54,8 +54,17 @@ export type ClientCredentials = {
   clientSecret?: string;
 };
 
+/** Without its trailing slashes. A loop, not /\/+$/: on a string of many
+ * slashes followed by another character, that regex backtracks in
+ * quadratic time, and clients choose the resource. */
+export function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 const sameResource = (a: string, b: string) =>
-  a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+  withoutTrailingSlashes(a) === withoutTrailingSlashes(b);
 
 /**
  * The OAuth 2.1 authorization server of the MCP endpoint: authorization code

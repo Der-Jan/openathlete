@@ -178,6 +178,18 @@ export class AiSettingsService {
     return this.getModelPreferences(userId);
   }
 
+  /** The user allows their data to be sent to AI providers, or withdraws it */
+  async setDataSharingConsent(
+    userId: number,
+    consent: boolean,
+  ): Promise<AiAccessDto> {
+    await this.prisma.user.update({
+      where: { userId },
+      data: { aiDataSharingConsentAt: consent ? new Date() : null },
+    });
+    return this.resolver.describeAccess(userId);
+  }
+
   async getAccess(userId: number, athleteId?: number): Promise<AiAccessDto> {
     if (athleteId !== undefined) {
       const athlete = await this.prisma.athlete.findFirst({

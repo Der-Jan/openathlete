@@ -48,6 +48,7 @@ describe('AiSettingsService (PostgreSQL)', () => {
   const policy = { hostedAccess: 'subscribers', customEndpointsAllowed: false };
   const ping = jest.fn();
   let service: AiSettingsService;
+  let resolver: AiModelResolverService;
   let athleteUserId: number;
   let coachUserId: number;
   let strangerUserId: number;
@@ -60,7 +61,7 @@ describe('AiSettingsService (PostgreSQL)', () => {
       registry,
       policy as AiPolicyService,
     );
-    const resolver = new AiModelResolverService(
+    resolver = new AiModelResolverService(
       prisma,
       policy as AiPolicyService,
       catalog,
@@ -349,5 +350,39 @@ describe('AiSettingsService (PostgreSQL)', () => {
     await expect(service.getAccess(strangerUserId, athleteId)).rejects.toThrow(
       'Athlete not accessible',
     );
+  });
+
+  it("runs AI on an athlete's data only once they and the coach allowed it", async () => {
+    const key = await service.createCredential(coachUserId, {
+      provider: 'openai',
+      apiKey: 'sk-coach-pays-00001',
+    });
+    await service.updateModelPreferences(coachUserId, {
+      preferences: [
+        {
+          task: AiTask.DEFAULT,
+          aiCredentialId: key.aiCredentialId,
+          modelId: 'gpt-5.1',
+        },
+      ],
+    });
+    const run = () =>
+      resolver.tryResolveForAthlete(AiTask.FEEDBACK_EXTRACTION, athleteId);
+
+    await expect(run()).resolves.toBeNull();
+
+    await service.setDataSharingConsent(coachUserId, true);
+    await expect(run()).resolves.toBeNull();
+
+    const access = await service.setDataSharingConsent(athleteUserId, true);
+    expect(access.dataSharingConsent).toBe(true);
+    await expect(run()).resolves.toMatchObject({ userId: coachUserId });
+
+    await service.setDataSharingConsent(athleteUserId, false);
+    await expect(run()).resolves.toBeNull();
+    expect(
+      (await service.getAccess(coachUserId, athleteId))
+        .athleteDataSharingConsent,
+    ).toBe(false);
   });
 });

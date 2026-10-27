@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     checkout: vi.fn(),
     purchase: vi.fn(),
     restore: vi.fn(),
+    prices: vi.fn(),
     toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
   };
 });
@@ -32,7 +33,7 @@ vi.mock('@/api/subscription', () => ({
 vi.mock('@/utils/capacitor', () => ({ purchaseChannel: mocks.channel }));
 vi.mock('@/utils/app-store', () => ({
   PurchaseCancelledError: mocks.PurchaseCancelledError,
-  supporterPrices: async () => ({ month: '4,99 €', year: '49,99 €' }),
+  supporterPrices: mocks.prices,
 }));
 vi.mock('@/utils/consent', () => ({
   privacyPolicyUrl: () => 'https://openathlete.org/privacy-policy',
@@ -68,6 +69,7 @@ vi.mock('@/paraglide/messages', () => ({
     app_store_restore_none: () => 'Nothing to restore',
     app_store_restore_error: () => 'Restore failed',
     app_store_products_unavailable: () => 'No prices',
+    app_store_retry: () => 'Try again',
     app_store_subscription_terms: () => 'Renews automatically',
     app_store_terms_of_use: () => 'Terms of use',
     app_store_privacy_policy: () => 'Privacy policy',
@@ -161,6 +163,7 @@ describe('SupporterOffer in the iOS app (App Store)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mocks.channel.mockReturnValue('app-store');
+    mocks.prices.mockResolvedValue({ month: '4,99 €', year: '49,99 €' });
     await render();
   });
 
@@ -212,5 +215,27 @@ describe('SupporterOffer in the iOS app (App Store)', () => {
     await act(async () => button('Restore purchases').click());
 
     expect(mocks.toast.info).toHaveBeenCalledWith('Nothing to restore');
+  });
+});
+
+describe('SupporterOffer when the App Store returns no products', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.channel.mockReturnValue('app-store');
+    mocks.prices.mockResolvedValue({});
+    await render();
+  });
+
+  it('says so and lets the user try again, instead of waiting forever', async () => {
+    expect(container.textContent).toContain('No prices');
+    expect(button('Become a Supporter').disabled).toBe(true);
+
+    mocks.prices.mockResolvedValue({ month: '4,99 €', year: '49,99 €' });
+    await act(async () => button('Try again').click());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(mocks.prices).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('49,99 €/year');
+    expect(container.textContent).not.toContain('No prices');
   });
 });

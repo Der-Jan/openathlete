@@ -156,4 +156,27 @@ export class AiSettingsController {
   ) {
     return this.settings.getAccess(user.userId, athleteId);
   }
+
+  @Post('consent')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Allow data to be sent to AI providers',
+    description:
+      "Records that the user allows their training data (planned sessions, activity summaries, metrics, the notes and feedback they write, voice notes) to be sent to the AI providers listed by GET /ai/access. No AI feature runs on the user's data without it, as App Store guideline 5.1.2(i) and the GDPR require. Returns the updated access.",
+  })
+  @ApiResponse({ status: 200, description: 'The updated AI access' })
+  allowDataSharing(@JwtUser() user: AuthUser) {
+    return this.settings.setDataSharingConsent(user.userId, true);
+  }
+
+  @Delete('consent')
+  @ApiOperation({
+    summary: 'Withdraw the permission to send data to AI providers',
+    description:
+      "From now on, no AI feature runs on the user's data, in the background or on demand, until they allow it again. Returns the updated access.",
+  })
+  @ApiResponse({ status: 200, description: 'The updated AI access' })
+  withdrawDataSharing(@JwtUser() user: AuthUser) {
+    return this.settings.setDataSharingConsent(user.userId, false);
+  }
 }

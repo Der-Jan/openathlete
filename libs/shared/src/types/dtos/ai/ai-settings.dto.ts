@@ -35,6 +35,8 @@ export enum AiErrorCode {
   HOSTED_QUOTA_EXCEEDED = 'AI_HOSTED_QUOTA_EXCEEDED',
   /** Any other provider failure */
   PROVIDER_ERROR = 'AI_PROVIDER_ERROR',
+  /** The user has not allowed their data to be sent to AI providers */
+  CONSENT_REQUIRED = 'AI_CONSENT_REQUIRED',
 }
 
 export const aiProviderModelSchema = z.object({
@@ -154,4 +156,16 @@ export interface AiAccessDto {
   /** The monthly allowance on the instance keys is used up */
   hostedQuotaExhausted: boolean;
   usage: AiUsageDto;
+  /**
+   * The user allowed their data to be sent to the AI providers above. No AI
+   * runs on their data without it; `tasks` say what would run once allowed.
+   */
+  dataSharingConsent: boolean;
+  /**
+   * With an athlete: whether that athlete allowed it, which background
+   * features on their activities need. Null without an athlete.
+   */
+  athleteDataSharingConsent: boolean | null;
+  /** Provider transcribing voice notes, when the instance offers it */
+  transcriptionProvider: string | null;
 }
