@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import { createHash } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
@@ -15,6 +16,16 @@ export interface ActivityImportJobData {
 
 export interface ProviderFullImportJobData {
   providerAccountId: number;
+}
+
+/** One entry of a Garmin ping or push notification */
+export interface GarminNotificationJobData {
+  /** The list key of the notification: activities, dailies, activityFiles... */
+  summaryType: string;
+  userId: string;
+  /** Ping: where to pull the data. Push: absent, the entry is the data. */
+  callbackURL?: string;
+  entry: Record<string, unknown>;
 }
 
 export interface ActivityProcessingJobData {
@@ -34,7 +45,38 @@ export class QueueService {
     private readonly activityProcessingQueue: Queue<ActivityProcessingJobData>,
     @InjectQueue('provider-full-import')
     private readonly fullImportQueue: Queue<ProviderFullImportJobData>,
+    @InjectQueue('garmin-notification')
+    private readonly garminNotificationQueue: Queue<GarminNotificationJobData>,
   ) {}
+
+  /**
+   * Queue Garmin notifications, so the webhook answers within Garmin's 30
+   * seconds and a restart loses none: callback URLs stay valid for 7 days
+   * (activity files: 24 hours).
+   */
+  async addGarminNotificationJobs(
+    notifications: GarminNotificationJobData[],
+  ): Promise<void> {
+    if (notifications.length === 0) return;
+    await this.garminNotificationQueue.addBulk(
+      notifications.map((data) => ({
+        name: data.summaryType,
+        data,
+        // Garmin resends a notification it thinks failed: process it once
+        opts: {
+          jobId: `garmin-${createHash('sha256')
+            .update(
+              JSON.stringify([
+                data.summaryType,
+                data.userId,
+                data.callbackURL ?? data.entry,
+              ]),
+            )
+            .digest('hex')}`,
+        },
+      })),
+    );
+  }
 
   /**
    * Queue the historical import of a provider account. Listing years of
