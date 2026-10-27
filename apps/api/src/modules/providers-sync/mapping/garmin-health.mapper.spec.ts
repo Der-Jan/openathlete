@@ -4,6 +4,7 @@ import {
   aggregateGarminPartials,
   garminPulseOxPartials,
   garminRespirationPartials,
+  mapGarminBodyComps,
   mapGarminDailies,
   mapGarminSleeps,
 } from './garmin-health.mapper';
@@ -67,6 +68,45 @@ describe('mapGarminSleeps', () => {
 
     expect(valueOf(metrics, MetricType.SLEEP_DURATION)).toBe(7.5);
     expect(valueOf(metrics, MetricType.SLEEP_SCORE)).toBe(81);
+  });
+});
+
+describe('off-wrist sleep', () => {
+  it('keeps the sleep window but not the zero stages', () => {
+    const metrics = mapGarminSleeps([
+      {
+        summaryId: 's1',
+        calendarDate: '2026-10-27',
+        validation: 'OFF_WRIST',
+        durationInSeconds: 28260,
+        deepSleepDurationInSeconds: 0,
+        lightSleepDurationInSeconds: 0,
+      },
+    ]);
+
+    expect(metrics.map((metric) => metric.type)).toEqual([
+      MetricType.SLEEP_DURATION,
+    ]);
+  });
+});
+
+describe('mapGarminBodyComps', () => {
+  it('ends with the latest weigh-in of the day', () => {
+    const metrics = mapGarminBodyComps([
+      {
+        summaryId: 'b2',
+        measurementTimeInSeconds: 1_793_050_000,
+        weightInGrams: 70100,
+      },
+      {
+        summaryId: 'b1',
+        measurementTimeInSeconds: 1_793_000_000,
+        weightInGrams: 71000,
+      },
+    ]).filter((metric) => metric.type === MetricType.WEIGHT);
+
+    // Upserted in order: the last record is the one kept
+    expect(metrics.at(-1)?.value).toBe(70.1);
   });
 });
 

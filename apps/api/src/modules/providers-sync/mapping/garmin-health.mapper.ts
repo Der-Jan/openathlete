@@ -275,6 +275,10 @@ export function mapGarminSleeps(
       date,
       hours(summary.durationInSeconds),
     );
+    // Off wrist, Garmin only knows when sleep started and ended: its zero
+    // stages and score are no data, not a night without deep sleep
+    if (summary.validation === 'OFF_WRIST') continue;
+
     push(
       metrics,
       MetricType.SLEEP_REM_DURATION,
@@ -328,11 +332,23 @@ export function mapGarminSleeps(
   return metrics;
 }
 
+/**
+ * Several readings can share a day: they are sorted so the day keeps the
+ * latest one, whatever the order Garmin lists them in.
+ */
+function byMeasurementTime<T extends { measurementTimeInSeconds: number }>(
+  summaries: T[],
+): T[] {
+  return [...summaries].sort(
+    (a, b) => a.measurementTimeInSeconds - b.measurementTimeInSeconds,
+  );
+}
+
 export function mapGarminBodyComps(
   summaries: GarminBodyCompositionSummary[],
 ): GarminMetricRecord[] {
   const metrics: GarminMetricRecord[] = [];
-  for (const summary of summaries) {
+  for (const summary of byMeasurementTime(summaries)) {
     const date = localDayDate(
       summary.measurementTimeInSeconds,
       summary.measurementTimeOffsetInSeconds,
@@ -414,7 +430,7 @@ export function mapGarminBloodPressures(
   summaries: GarminBloodPressureSummary[],
 ): GarminMetricRecord[] {
   const metrics: GarminMetricRecord[] = [];
-  for (const summary of summaries) {
+  for (const summary of byMeasurementTime(summaries)) {
     const date = localDayDate(
       summary.measurementTimeInSeconds,
       summary.measurementTimeOffsetInSeconds,
