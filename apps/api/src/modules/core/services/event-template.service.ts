@@ -3,12 +3,8 @@ import { subject } from '@casl/ability';
 import {
   BadRequestException,
   ForbiddenException,
-  Inject,
   Injectable,
-  Logger,
   NotFoundException,
-  Optional,
-  forwardRef,
 } from '@nestjs/common';
 
 import { EventTemplate, Event as PrismaEvent } from '@openathlete/database';
@@ -18,21 +14,15 @@ import { CaslAbilityFactory } from 'src/modules/auth';
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 
-import { TrainingLoadEstimationService } from '../../queue/services/training-load-estimation.service';
 import { EVENT_INCLUDES } from './event-includes';
 import { EventService } from './event.service';
 
 @Injectable()
 export class EventTemplateService {
-  private readonly logger = new Logger(EventTemplateService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private eventService: EventService,
     private readonly abilities: CaslAbilityFactory,
-    @Optional()
-    @Inject(forwardRef(() => TrainingLoadEstimationService))
-    private trainingLoadEstimationService?: TrainingLoadEstimationService,
   ) {}
 
   async getMyEventTemplates(user: AuthUser, search?: string) {
@@ -425,27 +415,19 @@ export class EventTemplateService {
       }
     }
 
-    // Schedule training load estimation for future training events
+    // Compute training load or schedule AI estimation for created training events
     if (
       newEvent.type === 'TRAINING' &&
       newEvent.training &&
-      newEvent.startDate > startOfDay(new Date()) &&
-      this.trainingLoadEstimationService &&
       newEvent.athleteId
     ) {
-      this.trainingLoadEstimationService
-        .scheduleEstimation(
-          newEvent.eventId,
-          newEvent.training.eventTrainingId,
-          newEvent.athleteId,
-        )
-        .catch((error) => {
-          // Log but don't fail the request
-          this.logger.error(
-            `Failed to schedule training load estimation: ${error instanceof Error ? error.message : String(error)}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-        });
+      const isFuture = newEvent.startDate > startOfDay(new Date());
+      await this.eventService.computeAndApplyPlannedTrainingLoad(
+        newEvent.eventId,
+        newEvent.athleteId,
+        newEvent.training.eventTrainingId,
+        isFuture,
+      );
     }
 
     // Return the complete event

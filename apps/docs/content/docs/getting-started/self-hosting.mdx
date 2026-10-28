@@ -61,7 +61,7 @@ Leave a variable empty to disable the feature:
 | Transactional email (password reset, invitations) | `SMTP_*` and `EMAIL_FROM`, or `BREVO_API_KEY` (see below)  |
 | An email to you for each new account              | `SIGNUP_NOTIFICATION_EMAIL` (needs email)                  |
 | Device sync                                       | `STRAVA_*`, `GARMIN_*`, `POLAR_*`, `SUUNTO_*`              |
-| AI load estimation of planned sessions            | `ENABLE_TRAINING_LOAD_ESTIMATION`                          |
+| AI load estimation fallback for planned sessions  | `ENABLE_TRAINING_LOAD_ESTIMATION`                          |
 | Billing                                           | `STRIPE_*` (not needed for self-hosting)                   |
 
 #### Email
@@ -121,7 +121,7 @@ AI features (workout generation and editing, post-activity questions, feedback a
 - **Monthly budget**: `AI_HOSTED_MONTHLY_BUDGET_USD` caps what each user may spend per month on the instance keys, in US dollars at the providers' prices, for example `3`. Calls are charged at their model's price (input and output tokens apart); a model the API does not know is charged like a flagship model. Once the budget is used, features run only on the user's own key until the next month. Unset, usage is not limited. Users see the share they used in Settings > AI.
 - **Local models**: users can add any OpenAI-compatible endpoint, such as Ollama (`http://ollama:11434/v1`), vLLM or LM Studio. This is on by default without Stripe. Set `AI_ALLOW_CUSTOM_ENDPOINTS=false` on an instance open to the public: the server calls these URLs on users' behalf.
 
-For background features (post-activity questions, feedback analysis, load estimation), an athlete without AI uses their coach's key or plan.
+For background features (post-activity questions, feedback analysis, AI load estimation fallback), an athlete without AI uses their coach's key or plan.
 
 ### AI agents (MCP)
 
