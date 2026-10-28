@@ -1558,5 +1558,7 @@
   "mobile_server_unreachable": "Could not reach an OpenAthlete API at this address. Check the URL and the server CORS settings.",
   "mobile_server_switch_warning": "Changing servers signs you out and clears local app data.",
   "mobile_server_continue": "Continue",
-  "mobile_server_change": "Change server"
+  "mobile_server_change": "Change server",
+  "oauth_consent_import": "Send activity files (FIT, GPX, TCX) to your calendar",
+  "mcp_scope_import": "Activity import"
 }

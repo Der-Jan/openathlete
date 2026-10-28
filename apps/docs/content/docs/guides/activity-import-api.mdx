@@ -1,0 +1,69 @@
+---
+title: Activity import API
+description: Let another app, such as a self-hosted activity tracker, send activity files to OpenAthlete.
+---
+
+An app can send FIT, GPX and TCX files to a user's OpenAthlete calendar,
+where they are processed like files the user imports: streams, laps, records
+and training load. It is how a self-hosted activity tracker can feed a
+self-hosted OpenAthlete, which usually has no Strava, Garmin or other device
+connection.
+
+The app signs in with OAuth 2.1, and the user approves it once. Its token
+only allows sending files: it cannot read anything, nor reach the
+[AI agents (MCP)](/docs/guides/ai-agents) endpoint.
+
+## Endpoints
+
+With `<api>` the address of the API (`https://api.openathlete.org` on
+openathlete.org, `https://<your domain>/api` on a self-hosted instance):
+
+| | |
+| --- | --- |
+| Resource | `<api>/activity-import` |
+| Scope | `activities:import` |
+| Protected resource metadata (RFC 9728) | `<api>/.well-known/oauth-protected-resource/activity-import` |
+| Authorization server metadata (RFC 8414) | `<api>/.well-known/oauth-authorization-server` |
+| Upload | `POST <api>/activity-import/fit`, `/gpx` or `/tcx` |
+
+An upload without a valid token answers `401` with a `WWW-Authenticate`
+header that points to the resource metadata, so an app can start from the
+user's instance address alone.
+
+## Connect
+
+1. **Identify the app**: with a Client ID Metadata Document (its client ID
+   is the https URL of that document), or through Dynamic Client
+   Registration (`registration_endpoint`) when OpenAthlete cannot reach the
+   app, for example an app on a private network connecting to
+   openathlete.org.
+2. **Authorization code with PKCE** (S256): send the user to
+   `authorization_endpoint` with `scope=activities:import` and
+   `resource=<api>/activity-import`. They sign in to OpenAthlete if needed
+   and see that the app will be able to send activity files to their
+   calendar.
+3. **Exchange the code** at `token_endpoint`, with the same `resource`.
+   Access tokens last an hour. Refresh tokens are single-use: store the new
+   one each time, atomically. Presenting a used refresh token again revokes
+   the app's tokens.
+
+The user sees the app in **Settings › AI agents** and can revoke it there;
+the app can also revoke its own access at `revocation_endpoint`.
+
+## Upload a file
+
+```bash
+curl -X POST https://api.openathlete.org/activity-import/fit \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -F file=@morning-run.fit \
+  -F name="Morning run"
+```
+
+The file goes in `file` (up to 20 MB) and the activity's title in `name`
+(1 to 100 characters). GPX and TCX uploads also take an optional `sport`,
+since those files don't always say it. The activity lands in the calendar of
+the user who approved the app.
+
+Sending the same file again returns the existing activity, and an activity
+starting at the same time as an existing one is refused, so retries are
+safe.

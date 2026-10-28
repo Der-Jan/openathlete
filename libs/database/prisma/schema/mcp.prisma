@@ -25,6 +25,16 @@ enum McpTokenType {
   @@map("mcp_token_type")
 }
 
+/// The protected resources of the OAuth server
+enum OAuthResource {
+  /// The MCP endpoint, for AI agents
+  MCP
+  /// The activity import API, for apps that send activity files
+  ACTIVITY_IMPORT
+
+  @@map("oauth_resource")
+}
+
 /// An OAuth client: registered through Dynamic Client Registration (random
 /// id), or known by the URL of its Client ID Metadata Document (the id is
 /// that https URL, and the document is fetched again once stale).
@@ -104,6 +114,9 @@ model McpToken {
   expiresAt DateTime     @map("expires_at")
   /// Refresh tokens: when it was exchanged for new tokens
   usedAt    DateTime?    @map("used_at")
+  /// The API the token is for: an MCP token is refused by the import API,
+  /// and the other way round (RFC 8707 audiences)
+  resource  OAuthResource @default(MCP)
 
   // relationships
   grant   McpGrant @relation(fields: [grantId], references: [mcpGrantId], onDelete: Cascade)

@@ -9,6 +9,10 @@ export type McpUrls = {
   resource: string;
   /** Protected Resource Metadata of the MCP endpoint (RFC 9728) */
   resourceMetadata: string;
+  /** The activity import API, the resource of apps that send files */
+  importResource: string;
+  /** Protected Resource Metadata of the activity import API */
+  importResourceMetadata: string;
   /** Consent page of the web app */
   consentPage: string;
 };
@@ -33,6 +37,8 @@ export function mcpUrls(
     issuer,
     resource: `${issuer}/mcp`,
     resourceMetadata: `${issuer}/.well-known/oauth-protected-resource/mcp`,
+    importResource: `${issuer}/activity-import`,
+    importResourceMetadata: `${issuer}/.well-known/oauth-protected-resource/activity-import`,
     consentPage: `${appUrl}/oauth/authorize`,
   };
 }

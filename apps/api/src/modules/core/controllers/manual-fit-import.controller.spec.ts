@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import { Test } from '@nestjs/testing';
 
+import { ActivityImportAuthGuard } from '../../mcp/auth/activity-import-auth.guard';
 import { ManualFitImportService } from '../services/manual-fit-import.service';
 import { ManualFitImportController } from './manual-fit-import.controller';
 
@@ -26,7 +26,7 @@ describe('Manual FIT multipart upload', () => {
       controllers: [ManualFitImportController],
       providers: [{ provide: ManualFitImportService, useValue: service }],
     })
-      .overrideGuard(AuthGuard('jwt'))
+      .overrideGuard(ActivityImportAuthGuard)
       .useValue({
         canActivate: (context: {
           switchToHttp: () => { getRequest: () => { user: unknown } };

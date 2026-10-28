@@ -25,6 +25,7 @@ if (!databaseUrl)
 
 const REDIRECT = 'https://agent.example/oauth/callback';
 const RESOURCE = 'https://api.example/mcp';
+const IMPORT = 'https://api.example/activity-import';
 
 describe('MCP OAuth (PostgreSQL)', () => {
   let prisma: PrismaService;
@@ -74,7 +75,11 @@ describe('MCP OAuth (PostgreSQL)', () => {
     });
 
   /** Consent, then the code exchange, as a client goes through them */
-  async function connect(clientId: string, scope = 'read write') {
+  async function connect(
+    clientId: string,
+    scope = 'read write',
+    resource = RESOURCE,
+  ) {
     const verifier = randomBytes(32).toString('base64url');
     const request = {
       response_type: 'code',
@@ -84,7 +89,7 @@ describe('MCP OAuth (PostgreSQL)', () => {
       code_challenge_method: 'S256',
       scope,
       state: 'state-1',
-      resource: RESOURCE,
+      resource,
     };
     const redirect = new URL(await oauth.decide(athlete, request, true));
     return {
@@ -98,7 +103,7 @@ describe('MCP OAuth (PostgreSQL)', () => {
             code: redirect.searchParams.get('code'),
             redirect_uri: REDIRECT,
             code_verifier: verifier,
-            resource: RESOURCE,
+            resource,
             ...overrides,
           },
           { clientId },
@@ -421,5 +426,115 @@ describe('MCP OAuth (PostgreSQL)', () => {
     expect(
       await prisma.oAuthClient.findMany({ select: { clientId: true } }),
     ).toEqual([{ clientId: 'client-1' }]);
+  });
+
+  describe('the activity import API', () => {
+    it('advertises its own resource and scope', () => {
+      expect(oauth.importResourceMetadata()).toMatchObject({
+        resource: IMPORT,
+        authorization_servers: ['https://api.example'],
+        scopes_supported: ['activities:import'],
+      });
+      expect(oauth.metadata().scopes_supported).toEqual([
+        'read',
+        'write',
+        'activities:import',
+      ]);
+    });
+
+    it('issues tokens that only the import API accepts', async () => {
+      const client = await register({ client_name: 'Endurain' });
+      const { exchange } = await connect(
+        client.client_id,
+        'activities:import',
+        IMPORT,
+      );
+      const tokens = await exchange();
+      expect(tokens.scope).toBe('activities:import');
+
+      const principal = await auth.authenticate(
+        tokens.access_token,
+        'ACTIVITY_IMPORT',
+      );
+      expect(principal).toMatchObject({
+        user: { userId: DELETED_USER_ID },
+        scopes: ['activities:import'],
+      });
+      expect(await auth.authenticate(tokens.access_token, 'MCP')).toBeNull();
+
+      // Refreshed tokens stay on the import API
+      const refreshed = await oauth.token(
+        { grant_type: 'refresh_token', refresh_token: tokens.refresh_token },
+        { clientId: client.client_id },
+      );
+      expect(refreshed.scope).toBe('activities:import');
+      expect(await auth.authenticate(refreshed.access_token, 'MCP')).toBeNull();
+      expect(
+        await auth.authenticate(refreshed.access_token, 'ACTIVITY_IMPORT'),
+      ).not.toBeNull();
+    });
+
+    it('never lets an MCP token or a personal token import', async () => {
+      const client = await register();
+      const tokens = await (await connect(client.client_id)).exchange();
+      expect(
+        await auth.authenticate(tokens.access_token, 'ACTIVITY_IMPORT'),
+      ).toBeNull();
+      expect(
+        await auth.authenticate(tokens.access_token, 'MCP'),
+      ).not.toBeNull();
+
+      const personal = await auth.createPersonalToken(athlete, {
+        name: 'Agent',
+        scopes: ['read', 'write'],
+        expiresInDays: null,
+      });
+      expect(
+        await auth.authenticate(personal.token, 'ACTIVITY_IMPORT'),
+      ).toBeNull();
+    });
+
+    it("refuses another resource's scopes", async () => {
+      const client = await register();
+      for (const [scope, resource] of [
+        ['read', IMPORT],
+        ['activities:import read', IMPORT],
+        ['activities:import', RESOURCE],
+      ]) {
+        await expect(
+          connect(client.client_id, scope, resource),
+        ).rejects.toMatchObject({ code: 'invalid_scope' });
+      }
+      await expect(
+        connect(
+          client.client_id,
+          'activities:import',
+          'https://api.example/other',
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_target' });
+    });
+
+    it('keeps what a client has on one resource when it is approved for the other', async () => {
+      const client = await register();
+      const mcp = await (await connect(client.client_id)).exchange();
+      const imports = await (
+        await connect(client.client_id, 'activities:import', IMPORT)
+      ).exchange();
+
+      const grant = await prisma.mcpGrant.findFirstOrThrow({
+        where: { clientId: client.client_id },
+      });
+      expect([...grant.scopes].sort()).toEqual([
+        'activities:import',
+        'read',
+        'write',
+      ]);
+      expect(await auth.authenticate(mcp.access_token, 'MCP')).toMatchObject({
+        scopes: ['read', 'write'],
+      });
+      expect(
+        await auth.authenticate(imports.access_token, 'ACTIVITY_IMPORT'),
+      ).toMatchObject({ scopes: ['activities:import'] });
+    });
   });
 });

@@ -1558,5 +1558,7 @@
   "mobile_server_unreachable": "Impossibile raggiungere l'API OpenAthlete a questo indirizzo. Controlla l'URL e le impostazioni CORS del server.",
   "mobile_server_switch_warning": "Cambiare server disconnette l'account e cancella i dati locali dell'app.",
   "mobile_server_continue": "Continua",
-  "mobile_server_change": "Cambia server"
+  "mobile_server_change": "Cambia server",
+  "oauth_consent_import": "Inviare file di attività (FIT, GPX, TCX) al tuo calendario",
+  "mcp_scope_import": "Importazione attività"
 }

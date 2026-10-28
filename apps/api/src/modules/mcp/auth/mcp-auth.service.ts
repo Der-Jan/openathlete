@@ -5,23 +5,24 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { McpGrant, OAuthClient } from '@openathlete/database';
+import { McpGrant, OAuthClient, OAuthResource } from '@openathlete/database';
 import {
   CreatePersonalTokenDto,
   CreatedPersonalToken,
   McpConnection,
-  McpScope,
+  OAuthScope,
 } from '@openathlete/shared';
 
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 
+import { scopesFor } from './scopes';
 import { TOKEN_PREFIX, generateToken, hashToken } from './tokens';
 
-/** Who an MCP request acts for, and what it may do */
+/** Who a request with a token acts for, and what it may do */
 export type McpPrincipal = {
   user: AuthUser;
-  scopes: McpScope[];
+  scopes: OAuthScope[];
   grantId: number;
 };
 
@@ -44,7 +45,7 @@ function toConnection(
     mcpGrantId: grant.mcpGrantId,
     kind: grant.kind,
     name: grant.name,
-    scopes: grant.scopes as McpScope[],
+    scopes: grant.scopes as OAuthScope[],
     tokenHint: grant.tokenHint,
     clientUri: grant.client?.clientUri ?? null,
     createdAt: grant.createdAt,
@@ -63,11 +64,18 @@ export class McpAuthService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async authenticate(token: string): Promise<McpPrincipal | null> {
+  /**
+   * The user a token acts for on a resource. An OAuth access token works
+   * only on the resource it was issued for, and personal tokens only on MCP.
+   */
+  async authenticate(
+    token: string,
+    resource: OAuthResource = 'MCP',
+  ): Promise<McpPrincipal | null> {
     const now = new Date();
     let grant: (McpGrant & { user: AuthUser }) | null = null;
 
-    if (token.startsWith(TOKEN_PREFIX.personal)) {
+    if (token.startsWith(TOKEN_PREFIX.personal) && resource === 'MCP') {
       grant = await this.prisma.mcpGrant.findUnique({
         where: { tokenHash: hashToken(token) },
         include: { user: { select: USER_SELECT } },
@@ -80,7 +88,11 @@ export class McpAuthService {
           grant: { include: { user: { select: USER_SELECT } } },
         },
       });
-      if (access?.type === 'ACCESS' && access.expiresAt > now) {
+      if (
+        access?.type === 'ACCESS' &&
+        access.resource === resource &&
+        access.expiresAt > now
+      ) {
         grant = access.grant;
       }
     }
@@ -101,11 +113,9 @@ export class McpAuthService {
         );
     }
 
-    return {
-      user: grant.user,
-      scopes: grant.scopes as McpScope[],
-      grantId: grant.mcpGrantId,
-    };
+    const scopes = scopesFor(grant.scopes, resource);
+    if (!scopes.length) return null;
+    return { user: grant.user, scopes, grantId: grant.mcpGrantId };
   }
 
   async list(user: AuthUser): Promise<McpConnection[]> {
