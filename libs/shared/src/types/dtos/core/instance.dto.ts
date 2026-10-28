@@ -16,4 +16,6 @@ export interface InstanceInfoDto {
    * without any account is open, for its administrator
    */
   signup: 'open' | 'invite' | 'closed';
+  /** Sign-in through the instance's OpenID Connect provider, and its name */
+  oidc: { name: string } | null;
 }

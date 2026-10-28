@@ -5,6 +5,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConnectorProvider } from '@openathlete/database';
 import { ApiEnvSchemaType, InstanceInfoDto } from '@openathlete/shared';
 
+import { OidcService } from '../auth/services/oidc.service';
 import { emailTransportKind } from '../notification/services/email-transport.service';
 import { PrismaService } from '../prisma/services/prisma.service';
 import { configuredProviders } from '../providers-sync/base/provider-config';
@@ -15,6 +16,7 @@ export class InstanceController {
   constructor(
     private readonly config: ConfigService<ApiEnvSchemaType, true>,
     private readonly prisma: PrismaService,
+    private readonly oidc: OidcService,
   ) {}
 
   @Get()
@@ -33,6 +35,13 @@ export class InstanceController {
         providers: {
           type: 'array',
           items: { type: 'string', enum: Object.values(ConnectorProvider) },
+        },
+        oidc: {
+          type: 'object',
+          nullable: true,
+          properties: { name: { type: 'string' } },
+          description:
+            'Sign-in through an OpenID Connect provider, and its name',
         },
         signup: {
           type: 'string',
@@ -55,6 +64,7 @@ export class InstanceController {
         mode !== 'open' && (await this.prisma.user.count()) === 0
           ? 'open'
           : mode,
+      oidc: this.oidc.info(),
     };
   }
 }

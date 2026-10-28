@@ -61,6 +61,7 @@ Leave a variable empty to disable the feature:
 | Transactional email (password reset, invitations) | `SMTP_*` and `EMAIL_FROM`, or `BREVO_API_KEY` (see below)  |
 | An email to you for each new account              | `SIGNUP_NOTIFICATION_EMAIL` (needs email)                  |
 | Device sync                                       | `STRAVA_*`, `GARMIN_*`, `POLAR_*`, `SUUNTO_*`              |
+| Single sign-on (OpenID Connect)                   | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_NAME` (see below) |
 | AI load estimation fallback for planned sessions  | `ENABLE_TRAINING_LOAD_ESTIMATION`                          |
 | Billing                                           | `STRIPE_*` (not needed for self-hosting)                   |
 
@@ -141,13 +142,41 @@ project.
   ID Metadata Documents, which the API fetches from public https addresses
   only). Clients nobody approved are deleted after a month.
 
+### Single sign-on (OpenID Connect)
+
+Users can sign in through your identity provider (Authentik, Keycloak,
+Authelia, Zitadel, Pocket ID...) with a **Continue with** button on the
+sign-in page.
+
+1. At the provider, create an OpenID Connect client (authorization code
+   flow) with the redirect URI `APP_URL/api/auth/oidc/callback`, for example
+   `https://train.example.com/api/auth/oidc/callback`. With the API on its
+   own address, it is `API_PUBLIC_URL/auth/oidc/callback`.
+2. Set the variables and recreate the API container:
+
+| Variable             | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| `OIDC_ISSUER`        | The provider's issuer URL, where `/.well-known/openid-configuration` is found      |
+| `OIDC_CLIENT_ID`     | The client ID                                                                      |
+| `OIDC_CLIENT_SECRET` | The client secret (leave empty for a public client: PKCE protects the sign-in)     |
+| `OIDC_NAME`          | The name on the button, for example `Authentik` (default `SSO`)                    |
+
+- The provider's email address names the account: a user who already has
+  an account with that address signs into it. Addresses the provider marks
+  as unverified (`email_verified: false`) are refused, so only use a
+  provider you trust to check them.
+- On a first sign-in the account is created within `SIGNUP_MODE`: with
+  `invite`, it takes the invitation link the user came from.
+- Password sign-in stays available. Single sign-on works in the web app,
+  not yet in the mobile apps.
+
 ### HTTPS and reverse proxies
 
 The `https` profile runs Caddy with automatic certificates (see the quick start). With your own proxy (Traefik, nginx, Coolify...), forward the whole domain to the web container and keep `WEB_PORT` on localhost, for example `WEB_PORT=127.0.0.1:8080`. The API trusts `X-Forwarded-For` only from proxies on private networks, which covers a proxy on the same host or Docker network. If another public proxy sits in front (for example Cloudflare), set `TRUST_PROXY` to the number of proxy hops so rate limiting sees real client IPs.
 
 ### Sign-up
 
-`SIGNUP_MODE` decides who can create an account, with a password or with Google:
+`SIGNUP_MODE` decides who can create an account, with a password, with Google or through single sign-on:
 
 | Value            | Who can sign up                                                              |
 | ---------------- | ---------------------------------------------------------------------------- |

@@ -1560,5 +1560,11 @@
   "mobile_server_continue": "Continue",
   "mobile_server_change": "Change server",
   "oauth_consent_import": "Send activity files (FIT, GPX, TCX) to your calendar",
-  "mcp_scope_import": "Activity import"
+  "mcp_scope_import": "Activity import",
+  "continue_with_oidc": "Continue with {name}",
+  "sso_signing_in": "Signing you in…",
+  "sso_failed_title": "Sign-in failed",
+  "sso_failed": "The sign-in could not be completed. Try again, or sign in with your password.",
+  "sso_email_unverified": "Your identity provider did not confirm your email address, which OpenAthlete needs to find your account.",
+  "sso_back_to_login": "Back to sign-in"
 }

@@ -30,6 +30,12 @@ const PasswordResetRequestPage = lazy(() =>
   })),
 );
 
+const SsoPage = lazy(() =>
+  import('@/pages/auth/sso').then((module) => ({
+    default: module.SsoPage,
+  })),
+);
+
 const OAuthCallbackPage = lazy(() =>
   import('@/pages/auth/oauth-callback').then((module) => ({
     default: module.OAuthCallbackPage,
@@ -82,6 +88,14 @@ export const authRoutes: RouteObject[] = [
         element: (
           <AuthLayout>
             <PasswordResetRequestPage />
+          </AuthLayout>
+        ),
+      },
+      {
+        path: getPathEnd(getPath(['auth', 'sso'])),
+        element: (
+          <AuthLayout>
+            <SsoPage />
           </AuthLayout>
         ),
       },

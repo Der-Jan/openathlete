@@ -1,4 +1,4 @@
-import { useLoginWithFirebaseMutation } from '@/api/auth';
+import { AuthAPI, useLoginWithFirebaseMutation } from '@/api/auth';
 import { useInstanceInfoQuery } from '@/api/instance';
 import { AppleIcon } from '@/components/icons/apple';
 import { GoogleIcon } from '@/components/icons/google';
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuthContext } from '@/contexts/auth';
 import { m } from '@/paraglide/messages';
 import { getPath } from '@/routes/paths';
-import { isIOS } from '@/utils/capacitor';
+import { isCapacitor, isIOS } from '@/utils/capacitor';
 import {
   type OAuthProviderId,
   getFirebaseIdTokenForProvider,
@@ -16,6 +16,7 @@ import { currentLanguage } from '@/utils/language-choice';
 import { takeReturnTo } from '@/utils/return-to';
 import { cn } from '@/utils/shadcn';
 import { signupRefusal } from '@/utils/signup';
+import { KeyRound } from 'lucide-react';
 import { usePostHog } from 'posthog-js/react';
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -78,12 +79,30 @@ export function OAuthButtons({
     }
   };
 
+  const [leavingForSso, setLeavingForSso] = useState(false);
   const isLoading =
-    loginWithFirebaseMutation.isPending || pendingProvider !== null;
+    loginWithFirebaseMutation.isPending ||
+    pendingProvider !== null ||
+    leavingForSso;
 
   // Both the API and this build need Firebase: offering the button without
   // them ends on "OAuth sign-in failed"
-  if (!instance?.googleSignIn || !isFirebaseWebConfigured()) return null;
+  const firebase = !!instance?.googleSignIn && isFirebaseWebConfigured();
+  // The provider brings the user back to the web app, not to a native one
+  const oidc = isCapacitor() ? null : (instance?.oidc ?? null);
+  if (!firebase && !oidc) return null;
+
+  const handleOidc = () => {
+    setLeavingForSso(true);
+    // The remembered return path survives the trip: sessionStorage
+    window.location.assign(
+      AuthAPI.oidcSignInUrl({
+        invitation: invitationToken || undefined,
+        coachInvitation: coachInvitationToken || undefined,
+        language: currentLanguage(),
+      }),
+    );
+  };
 
   return (
     <div className={cn('grid gap-5', className)}>
@@ -94,9 +113,23 @@ export function OAuthButtons({
       </div>
 
       <div className="grid gap-2">
+        {oidc && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-center gap-2"
+            onClick={handleOidc}
+            disabled={isLoading}
+            isLoading={leavingForSso}
+            data-oidc-sign-in
+          >
+            <KeyRound className="h-4 w-4" />
+            {m.continue_with_oidc({ name: oidc.name })}
+          </Button>
+        )}
         {/* App Store guideline 4.8: an app offering Google sign-in must also
             offer Sign in with Apple, at least as prominently */}
-        {isIOS() && (
+        {firebase && isIOS() && (
           <Button
             type="button"
             className="w-full justify-center gap-2 bg-black text-white hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/85"
@@ -108,17 +141,19 @@ export function OAuthButtons({
             {m.continue_with_apple()}
           </Button>
         )}
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-center gap-2"
-          onClick={() => handleProvider('google')}
-          disabled={isLoading}
-          isLoading={pendingProvider === 'google'}
-        >
-          <GoogleIcon className="h-4 w-4" />
-          {m.continue_with_google()}
-        </Button>
+        {firebase && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-center gap-2"
+            onClick={() => handleProvider('google')}
+            disabled={isLoading}
+            isLoading={pendingProvider === 'google'}
+          >
+            <GoogleIcon className="h-4 w-4" />
+            {m.continue_with_google()}
+          </Button>
+        )}
       </div>
     </div>
   );

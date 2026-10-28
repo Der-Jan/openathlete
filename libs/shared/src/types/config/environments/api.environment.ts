@@ -268,6 +268,33 @@ export const ApiEnvSchema = z
         'Sender address of every email, for Brevo and SMTP. Default: BREVO_FROM_EMAIL, else noreply@openathlete.org',
       ),
 
+    // Single sign-on through an OpenID Connect provider (optional)
+    OIDC_ISSUER: z
+      .string()
+      .url('OIDC_ISSUER must be a valid URL')
+      .optional()
+      .describe(
+        'Issuer URL of an OpenID Connect provider (Authentik, Keycloak, Authelia...): with OIDC_CLIENT_ID, adds a sign-in button',
+      ),
+
+    OIDC_CLIENT_ID: z
+      .string()
+      .optional()
+      .describe('Client ID of OpenAthlete at the OpenID Connect provider'),
+
+    OIDC_CLIENT_SECRET: z
+      .string()
+      .optional()
+      .describe(
+        'Client secret, for a confidential client; empty for a public one (PKCE only)',
+      ),
+
+    OIDC_NAME: z
+      .string()
+      .max(40)
+      .optional()
+      .describe('Name on the sign-in button. Default: SSO'),
+
     // Who may create an account
     SIGNUP_MODE: z
       .enum(['open', 'invite', 'closed'])

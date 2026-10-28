@@ -83,6 +83,11 @@ services:
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
       # open, invite or closed (the first account is always allowed)
       SIGNUP_MODE: ${SIGNUP_MODE:-open}
+      # Single sign-on through an OpenID Connect provider (optional)
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_NAME: ${OIDC_NAME:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       TRUST_PROXY: ${TRUST_PROXY:-}
 

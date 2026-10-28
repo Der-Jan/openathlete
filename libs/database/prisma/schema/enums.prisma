@@ -109,6 +109,8 @@ enum TokenType {
   PASSWORD_RESET
   ATHLETE_INVITATION
   COACH_INVITATION
+  /// One-time code that hands an OpenID Connect sign-in to the web app
+  OIDC_LOGIN
 
   @@map("token_type")
 }

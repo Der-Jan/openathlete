@@ -49,10 +49,16 @@ services:
       ENABLE_ACTIVITY_IMPORT: 'false'
       ENABLE_ACTIVITY_PROCESSING: 'false'
       ENABLE_TRAINING_LOAD_ESTIMATION: 'false'
+      # Single sign-on through the fake-oidc service
+      OIDC_ISSUER: http://fake-oidc:9000
+      OIDC_CLIENT_ID: openathlete-e2e
+      OIDC_CLIENT_SECRET: e2e-oidc-secret
+      OIDC_NAME: Fake IdP
     ports: ['127.0.0.1:13000:3000']
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      fake-oidc: { condition: service_healthy }
 
   worker:
     image: openathlete-api:e2e
@@ -73,6 +79,19 @@ services:
       - ./fake-llm/server.mjs:/srv/server.mjs:ro
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO /dev/null http://127.0.0.1:8080/health || exit 1']
+      interval: 3s
+      retries: 20
+
+  # OpenID Connect provider for single sign-on (see fake-oidc/server.mjs):
+  # the API reaches it as fake-oidc, the browser on port 19000
+  fake-oidc:
+    image: node:22-alpine
+    command: ['node', '/srv/server.mjs']
+    volumes:
+      - ./fake-oidc/server.mjs:/srv/server.mjs:ro
+    ports: ['127.0.0.1:19000:9000']
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO /dev/null http://127.0.0.1:9000/health || exit 1']
       interval: 3s
       retries: 20
 

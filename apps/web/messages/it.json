@@ -1560,5 +1560,11 @@
   "mobile_server_continue": "Continua",
   "mobile_server_change": "Cambia server",
   "oauth_consent_import": "Inviare file di attività (FIT, GPX, TCX) al tuo calendario",
-  "mcp_scope_import": "Importazione attività"
+  "mcp_scope_import": "Importazione attività",
+  "continue_with_oidc": "Continua con {name}",
+  "sso_signing_in": "Accesso in corso…",
+  "sso_failed_title": "Accesso non riuscito",
+  "sso_failed": "Non è stato possibile completare l'accesso. Riprova, oppure accedi con la tua password.",
+  "sso_email_unverified": "Il tuo provider di identità non ha confermato il tuo indirizzo email, che serve a OpenAthlete per trovare il tuo account.",
+  "sso_back_to_login": "Torna all'accesso"
 }
