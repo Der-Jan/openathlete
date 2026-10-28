@@ -23,6 +23,7 @@ import stretch01 from '@/assets/icons/sports/stretch_01.svg';
 import sup from '@/assets/icons/sports/sup.svg';
 import surfing from '@/assets/icons/sports/surfing.svg';
 import swim from '@/assets/icons/sports/swimming.svg';
+import taekwondo from '@/assets/icons/sports/taekwondo_01.svg';
 import trailRun from '@/assets/icons/sports/trail_run.svg';
 import treadmillRunning from '@/assets/icons/sports/treadmill_running.svg';
 import treePose from '@/assets/icons/sports/tree_pose.svg';
@@ -94,6 +95,8 @@ export function SportIcon({ sport, className }: P) {
         return crossCountrySkiing;
       case SPORT_TYPE.PICKLEBALL:
         return playingTennis;
+      case SPORT_TYPE.MARTIAL_ARTS:
+        return taekwondo;
       case SPORT_TYPE.PILATES:
       case SPORT_TYPE.MOBILITY:
         return stretch01;

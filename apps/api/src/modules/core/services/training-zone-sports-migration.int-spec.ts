@@ -44,6 +44,7 @@ const OCTOBER_2025: SportType[] = [
   'YOGA',
 ];
 const NOVEMBER_2025 = without(
+  'MARTIAL_ARTS',
   'MOBILITY',
   'TRIATHLON',
   'DUATHLON',
@@ -51,7 +52,7 @@ const NOVEMBER_2025 = without(
   'AQUABIKE',
 );
 // December 2025's enum, which the Mobility migration already completed
-const ALL_BUT_MOBILITY = without('MOBILITY');
+const ALL_BUT_MOBILITY = without('MARTIAL_ARTS', 'MOBILITY');
 
 /** Unlike the enum's order, to show the order doesn't matter. */
 const shuffled = (sports: SportType[]) => [...sports].sort().reverse();
