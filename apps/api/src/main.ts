@@ -1,3 +1,4 @@
+import { json } from 'express';
 import helmet from 'helmet';
 
 import { ConfigService } from '@nestjs/config';
@@ -7,6 +8,12 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { ApiEnvSchemaType } from '@openathlete/shared';
 
+import {
+  GARMIN_WEBHOOK_BODY_LIMIT,
+  GARMIN_WEBHOOK_PATH,
+  JSON_BODY_LIMIT,
+  rejectOversizedArrays,
+} from './common/security/payload-limits';
 import {
   MCP_CORS,
   getAllowedOrigins,
@@ -28,9 +35,11 @@ async function bootstrap() {
     }),
   );
 
-  // Garmin's production review requires accepting notification bodies of
-  // at least 10 MB; Express defaults to 100 KB
-  app.useBodyParser('json', { limit: '10mb' });
+  // Garmin notifications get their larger limit first; the global parser
+  // then skips the body it already read
+  app.use(GARMIN_WEBHOOK_PATH, json({ limit: GARMIN_WEBHOOK_BODY_LIMIT }));
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
+  app.use(rejectOversizedArrays);
 
   const configService = app.get(ConfigService<ApiEnvSchemaType, true>);
 
