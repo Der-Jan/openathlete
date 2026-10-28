@@ -2,9 +2,12 @@ import { z } from 'zod';
 
 import { MetricType } from '@openathlete/database';
 import {
+  CYCLE_COLOR_NAMES,
+  CYCLE_COLOR_PALETTE,
   CYCLE_KIND,
   METRIC_TYPE,
   SPORT_TYPE,
+  cycleColorName,
   metricUnitMap,
 } from '@openathlete/shared';
 
@@ -33,6 +36,7 @@ const periodOutput = z.object({
   kind: z.enum(KINDS),
   startDate: z.string(),
   endDate: z.string(),
+  color: z.string().describe('Palette name, or hex when set outside it'),
   description: z.string().optional(),
   sessionsInside: z
     .array(
@@ -42,6 +46,12 @@ const periodOutput = z.object({
       'Sessions still planned during the period: move, lighten or delete them',
     ),
 });
+
+const colorInput = z
+  .enum(CYCLE_COLOR_NAMES)
+  .describe(
+    'Calendar colour, e.g. one per kind of block; new periods are blue. Periods without training are drawn hatched grey whatever their colour',
+  );
 
 const metricsOutput = z.object({
   saved: z.array(
@@ -124,6 +134,7 @@ export const registerAthleteWriteTools: ToolRegistrar = (server, ctx, deps) => {
       kind: period.kind.toLowerCase() as Kind,
       startDate: day(period.startDate),
       endDate: day(period.endDate),
+      color: cycleColorName(period.color),
       ...(period.description && { description: period.description }),
       sessionsInside: sessions.map((session) => ({
         eventId: session.eventId,
@@ -171,11 +182,12 @@ export const registerAthleteWriteTools: ToolRegistrar = (server, ctx, deps) => {
           .max(2000)
           .optional()
           .describe('E.g. symptoms, or the goal of the block'),
+        color: colorInput.optional(),
       },
       outputSchema: periodOutput,
       annotations: WRITE,
     },
-    ({ athleteId, kind, startDate, endDate, name, description }) =>
+    ({ athleteId, kind, startDate, endDate, name, description, color }) =>
       run(periodOutput, async () => {
         const scope = await ctx.athlete(athleteId);
         const cycle = await deps.cycles.createCycle(ctx.user, {
@@ -183,6 +195,7 @@ export const registerAthleteWriteTools: ToolRegistrar = (server, ctx, deps) => {
           name: name ?? DEFAULT_NAMES[kind],
           description: description ?? '',
           kind: kind.toUpperCase() as CYCLE_KIND,
+          ...(color && { color: CYCLE_COLOR_PALETTE[color] }),
           ...span(scope, startDate, endDate),
         });
         return present(cycle.cycleId, scope);
@@ -195,7 +208,7 @@ export const registerAthleteWriteTools: ToolRegistrar = (server, ctx, deps) => {
     {
       title: 'Change a period',
       description:
-        'Changes the dates, name, kind or description of a period, e.g. to end an illness earlier or later than first thought.',
+        'Changes the dates, name, kind, description or colour of a period, e.g. to end an illness earlier or later than first thought.',
       inputSchema: {
         periodId: z.number().int(),
         startDate: localDate.optional(),
@@ -203,11 +216,12 @@ export const registerAthleteWriteTools: ToolRegistrar = (server, ctx, deps) => {
         kind: z.enum(KINDS).optional(),
         name: z.string().min(1).max(100).optional(),
         description: z.string().max(2000).optional(),
+        color: colorInput.optional(),
       },
       outputSchema: periodOutput,
       annotations: { ...WRITE, destructiveHint: true, idempotentHint: true },
     },
-    ({ periodId, startDate, endDate, kind, name, description }) =>
+    ({ periodId, startDate, endDate, kind, name, description, color }) =>
       run(periodOutput, async () => {
         const { period, scope } = await periodOf(periodId);
         const day = (instant: Date) => zonedClock(instant, scope.timeZone).date;
@@ -215,6 +229,7 @@ export const registerAthleteWriteTools: ToolRegistrar = (server, ctx, deps) => {
           ...(name && { name }),
           ...(description !== undefined && { description }),
           ...(kind && { kind: kind.toUpperCase() as CYCLE_KIND }),
+          ...(color && { color: CYCLE_COLOR_PALETTE[color] }),
           ...((startDate || endDate) &&
             span(
               scope,
