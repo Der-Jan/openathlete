@@ -170,6 +170,13 @@ export const ApiEnvSchema = z
       .optional()
       .describe('Suunto subscription key for API access (optional)'),
 
+    SUUNTO_WEBHOOK_SECRET: z
+      .string()
+      .optional()
+      .describe(
+        'Notification secret of the Suunto app, to verify its webhooks (optional)',
+      ),
+
     // Coros OAuth (optional)
     // COROS_CLIENT_ID: z
     //   .string()
