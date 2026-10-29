@@ -1,4 +1,4 @@
-import { Job, UnrecoverableError } from 'bullmq';
+import { Job, UnrecoverableError, Worker } from 'bullmq';
 
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { HttpException, Inject, Logger, forwardRef } from '@nestjs/common';
@@ -7,6 +7,7 @@ import { ConnectorProvider, ProviderAccount } from '@openathlete/database';
 
 import { PrismaService } from '../../prisma/services/prisma.service';
 import { FullImportResult } from '../../providers-sync/base/base-provider.service';
+import { ProviderRateLimitError } from '../../providers-sync/errors/provider-rate-limit.error';
 import {
   GarminProviderService,
   PolarProviderService,
@@ -63,6 +64,12 @@ export class ProviderFullImportProcessor extends WorkerHost {
     try {
       result = await this.runProviderImport(account);
     } catch (error) {
+      // Out of quota: pause the whole queue, as the next accounts would be
+      // refused too, and put the job back without spending an attempt
+      if (error instanceof ProviderRateLimitError) {
+        await this.worker.rateLimit(error.retryAfterMs);
+        throw Worker.RateLimitError();
+      }
       // A refused request (missing permission...) won't succeed on retry
       if (error instanceof HttpException && error.getStatus() < 500) {
         throw new UnrecoverableError(error.message);

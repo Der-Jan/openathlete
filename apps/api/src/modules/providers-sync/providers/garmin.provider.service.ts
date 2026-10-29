@@ -66,6 +66,7 @@ import {
   ProviderImportCapability,
 } from '../base';
 import { providerRedirectUri } from '../base/provider-urls';
+import { ProviderRateLimitError } from '../errors/provider-rate-limit.error';
 import {
   GarminDailyPartial,
   GarminMetricRecord,
@@ -614,9 +615,33 @@ export class GarminProviderService
         },
       );
     } catch (error) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
       // The same range was already requested: its activities are on the way
-      if (isAxiosError(error) && error.response?.status === 409) {
+      if (status === 409) {
         return { queuedActivities: 0, backfillRequested: true };
+      }
+      if (status === 429) {
+        const retryAfter = Number(
+          isAxiosError(error) ? error.response?.headers['retry-after'] : NaN,
+        );
+        throw new ProviderRateLimitError(
+          'Garmin',
+          Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : undefined,
+        );
+      }
+      // The user does not share their history with us (412), or Garmin
+      // refuses the request (400): retrying would not change it
+      if (status === 412) {
+        throw new BadRequestException(
+          'This Garmin user does not share their history with OpenAthlete',
+        );
+      }
+      if (status === 400) {
+        throw new BadRequestException(
+          `Garmin refused the backfill: ${garminErrorMessage(error)}`,
+        );
       }
       throw error;
     }

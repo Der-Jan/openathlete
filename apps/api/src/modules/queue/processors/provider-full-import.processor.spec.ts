@@ -8,6 +8,7 @@ import {
   isFullImportInProgress,
 } from '@openathlete/shared';
 
+import { ProviderRateLimitError } from '../../providers-sync/errors/provider-rate-limit.error';
 import { ProviderFullImportJobData } from '../queue.service';
 import { ProviderFullImportProcessor } from './provider-full-import.processor';
 
@@ -55,6 +56,24 @@ function job(attemptsMade = 0) {
 }
 
 describe('ProviderFullImportProcessor', () => {
+  it('pauses the queue on a rate limit, without spending an attempt', async () => {
+    const { prisma, garmin, processor } = setup({
+      ...activeStrava,
+      provider: ConnectorProvider.GARMIN,
+    });
+    garmin.queueFullImport.mockRejectedValue(
+      new ProviderRateLimitError('Garmin', 30_000),
+    );
+    const rateLimit = jest.fn();
+    Object.defineProperty(processor, 'worker', { value: { rateLimit } });
+
+    const error = await processor.process(job()).catch((e: Error) => e);
+
+    expect(rateLimit).toHaveBeenCalledWith(30_000);
+    expect((error as Error).message).toBe('bullmq:rateLimitExceeded');
+    expect(prisma.providerAccount.updateMany).not.toHaveBeenCalled();
+  });
+
   it('queues the history and marks the import completed', async () => {
     const { prisma, strava, processor } = setup();
     strava.queueFullImport.mockResolvedValue({ queuedActivities: 42 });
