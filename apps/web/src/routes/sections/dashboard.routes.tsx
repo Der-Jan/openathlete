@@ -80,6 +80,11 @@ const AthleteSettingsPage = lazy(() =>
   })),
 );
 
+const ActivityPage = lazy(() =>
+  import('@/pages/dashboard/activity').then((module) => ({
+    default: module.ActivityPage,
+  })),
+);
 const MessagesPage = lazy(() =>
   import('@/pages/dashboard/messages').then((module) => ({
     default: module.MessagesPage,
@@ -177,6 +182,10 @@ export const dashboardRoutes: RouteObject[] = [
       {
         path: getPath(['dashboard', 'settings', 'athleteId']),
         element: <AthleteSettingsPage />,
+      },
+      {
+        path: getPath(['dashboard', 'activity', 'eventId']),
+        element: <ActivityPage />,
       },
       {
         path: getPath(['dashboard', 'messages']),
