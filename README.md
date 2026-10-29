@@ -35,6 +35,7 @@
    <a href="https://api.openathlete.org/docs"><img src="https://img.shields.io/badge/API-Swagger-green" alt="API Docs"></a>
    <a href="https://docs.openathlete.org"><img src="https://img.shields.io/badge/Docs-Online-brightgreen" alt="Documentation"></a>
    <a href="https://discord.gg/j4PP6tDwuP"><img src="https://img.shields.io/badge/Discord-Community-5865F2" alt="Discord"></a>
+   <a href="https://buymeacoffee.com/openathlete"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
    <a href="https://github.com/openathleteorg/openathlete/issues?q=is:issue+is:open+label:%22help+wanted%22"><img src="https://img.shields.io/badge/Help%20Wanted-Contribute-blue"></a>
    <a href="https://github.com/openathleteorg/openathlete/issues?q=is:issue+is:open+label:%22good+first+issue%22"><img src="https://img.shields.io/badge/Good%20First%20Issue-Start%20Here-green"></a>
 </p>
@@ -413,4 +414,8 @@ Special thanks to these amazing projects which help power OpenAthlete:
 
 <p align="center">
   Made with ❤️ by athletes, for athletes
+</p>
+
+<p align="center">
+  If you self-host OpenAthlete, a <a href="https://buymeacoffee.com/openathlete">coffee</a> helps keep it maintained.
 </p>
