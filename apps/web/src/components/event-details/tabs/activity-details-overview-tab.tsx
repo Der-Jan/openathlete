@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { ActivityEvent, ActivityStream } from '@openathlete/shared';
 
 import { ActivityStreamsChart } from '../../activity-analysis/activity-streams-chart';
+import { DecouplingCard } from '../../activity-analysis/decoupling-card';
 import { availableLapSources } from '../../activity-analysis/laps';
 import { LapsCard } from '../../activity-analysis/laps-card';
 import { useLapOptions } from '../../activity-analysis/laps-options';
@@ -134,6 +135,7 @@ export function ActivityDetailsOverviewTab({
       <LapsCard event={event} options={lapOptions} />
       <SectionAnchor id={id('notes')} />
       {stream && <ZonesCard event={event} stream={stream} />}
+      {stream && <DecouplingCard stream={stream} sport={event.sport} />}
       {feedbackCard}
       {!!event.records?.length && (
         <ActivityRecordsCharts
