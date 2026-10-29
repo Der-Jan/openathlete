@@ -20,6 +20,8 @@ import {
 } from '@openathlete/database';
 import { ApiEnvSchemaType } from '@openathlete/shared';
 
+import { streamUpdate } from 'src/modules/core/helpers/activity-corrections';
+
 import { ActivityFileParserService } from '../../core/helpers/activity-file-parser.service';
 import { compressActivityStream } from '../../core/helpers/activity-stream';
 import { buildFitActivityDetails } from '../../core/helpers/fit-activity-details';
@@ -1039,7 +1041,8 @@ export class GarminProviderService
     await this.prisma.$transaction(async (tx) => {
       await tx.eventActivity.update({
         where: { eventActivityId },
-        data: { stream: details.stream as unknown as object },
+        // A corrected activity keeps its corrections over the new recording
+        data: await streamUpdate(tx, eventActivityId, details.stream),
       });
       if (details.segments.length > 0) {
         await tx.activitySegment.deleteMany({ where: { eventActivityId } });

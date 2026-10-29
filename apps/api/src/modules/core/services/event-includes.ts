@@ -79,6 +79,7 @@ export const EVENT_INCLUDES = {
       feedbackAnalyzedAt: true,
       aiSummary: true,
       aiSummaryAt: true,
+      corrections: true,
       equipment: {
         select: {
           equipmentId: true,

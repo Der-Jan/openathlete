@@ -30,6 +30,7 @@ import {
   TrainingPlanService,
   WorkoutService,
 } from './services';
+import { ActivityCorrectionsService } from './services/activity-corrections.service';
 import { ActivityDetailService } from './services/activity-detail.service';
 import { ActivityFeedbackService } from './services/activity-feedback.service';
 import { ActivityRecordsService } from './services/activity-records.service';
@@ -116,6 +117,7 @@ import { WeatherService } from './services/weather/weather.service';
     EventBulkService,
     EventSeriesService,
     ManualActivityService,
+    ActivityCorrectionsService,
     OpenMeteoWeatherProvider,
     ActivityDetailService,
     ActivityFileParserService,

@@ -203,6 +203,14 @@ model EventActivity {
   aiSummary              Json?              @map("ai_summary")
   /// When the summary was written, to tell it from one not attempted yet
   aiSummaryAt            DateTime?          @map("ai_summary_at")
+  /// The stream as recorded, kept from the first correction on so every
+  /// correction can be undone; null for an activity never corrected
+  originalStream         Json?              @map("original_stream")
+  /// The summary figures and dates as recorded, kept with originalStream
+  originalSummary        Json?              @map("original_summary")
+  /// Corrections applied over originalStream, in order (shape in
+  /// libs/shared StoredActivityCorrection); null for none
+  corrections            Json?
 
   // relationships
   event               Event                       @relation(fields: [eventId], references: [eventId])

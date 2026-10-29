@@ -29,7 +29,10 @@ function categoryOf(lengthM: number, grade: number): Climb['category'] {
 }
 
 /** Altitude averaged over a window of distance around each sample */
-function smoothAltitude(altitude: number[], distance: number[]): number[] {
+export function smoothAltitude(
+  altitude: number[],
+  distance: number[],
+): number[] {
   const half = SMOOTHING_M / 2;
   const result: number[] = [];
   let lo = 0;

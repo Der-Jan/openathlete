@@ -52,6 +52,7 @@ import { CalendarWebSocketService } from 'src/modules/calendar/services/calendar
 import { MessageThreadService } from 'src/modules/messages/services/message-thread.service';
 import { MessageService } from 'src/modules/messages/services/message.service';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
+import { QueueService } from 'src/modules/queue/queue.service';
 
 import { CoachActivityNoticeEvent } from '../../../events/coach-activity-notice.event';
 import { ProviderExportService } from '../../providers-sync/export.service';
@@ -118,6 +119,8 @@ export class EventService {
     private trainingLoadEstimationService?: TrainingLoadEstimationService,
     @Optional()
     private readonly calendarWebSocketService?: CalendarWebSocketService,
+    @Optional()
+    private readonly queueService?: QueueService,
   ) {}
 
   public prismaEventToEvent(
@@ -126,7 +129,10 @@ export class EventService {
       training: EventTraining | null;
       note: EventNote | null;
       activity:
-        | (Omit<EventActivity, 'stream' | 'recordsVersion'> & {
+        | (Omit<
+            EventActivity,
+            'stream' | 'recordsVersion' | 'originalStream' | 'originalSummary'
+          > & {
             segments?: ActivitySegment[];
             trainingLoadEntries?: Array<{ value: number }>;
             feedbackQuestions?: Array<{
@@ -952,6 +958,28 @@ export class EventService {
       });
     }
 
+    // Records, pace and load depend on the sport: process the activity again,
+    // without the AI or a notification, as for history
+    if (
+      !isTemplate &&
+      event.activity &&
+      'sport' in rest &&
+      rest.sport &&
+      rest.sport !== event.activity.sport
+    ) {
+      await this.queueService
+        ?.addActivityProcessingJob(
+          event.activity.eventActivityId,
+          eventId,
+          true,
+        )
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `Could not reprocess activity ${eventId} after a change of sport: ${String(error)}`,
+          ),
+        );
+    }
+
     // If RPE was updated on an activity, or it moved to another day, trigger
     // training load recalculation (skip for templates)
     if (!isTemplate && (isRpeUpdate || activityMoved) && event.activity) {
@@ -1606,7 +1634,10 @@ export class EventService {
       competition: EventCompetition | null;
       training: EventTraining | null;
       note: EventNote | null;
-      activity: Omit<EventActivity, 'stream' | 'recordsVersion'> | null;
+      activity: Omit<
+        EventActivity,
+        'stream' | 'recordsVersion' | 'originalStream' | 'originalSummary'
+      > | null;
     },
   ): Promise<boolean> {
     if (!event.athleteId) return true; // No athlete, consider validated
