@@ -13,6 +13,7 @@ import {
   ActivityFeedbackExtractionListener,
   ActivityFeedbackListener,
   ActivityPushNotificationListener,
+  ActivitySummaryListener,
   NotificationListener,
   ProviderDeregistrationListener,
   TrainingLoadListener,
@@ -83,6 +84,7 @@ import { SubscriptionModule } from './subscription';
           TrainingLoadListener,
           ActivityFeedbackListener,
           ActivityPushNotificationListener,
+          ActivitySummaryListener,
         ]
       : []),
     ActivityFeedbackExtractionListener,

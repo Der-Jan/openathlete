@@ -118,7 +118,7 @@ AI features (workout generation and editing, post-activity questions, feedback a
   AI_MODEL_EVENT_MODIFICATION=anthropic/claude-sonnet-5-5
   ```
 
-  Without `AI_MODEL_DEFAULT`, every feature uses `openai/gpt-5.6-luna`, so `OPENAI_API_KEY` is enough. `AI_MODEL_EVENT_GENERATION`, `AI_MODEL_EVENT_MODIFICATION`, `AI_MODEL_POST_ACTIVITY_FEEDBACK`, `AI_MODEL_FEEDBACK_EXTRACTION` and `AI_MODEL_TRIMP_ESTIMATION` override one feature. A feature whose model has no key configured is simply unavailable on the instance keys.
+  Without `AI_MODEL_DEFAULT`, every feature uses `openai/gpt-5.6-luna`, so `OPENAI_API_KEY` is enough. `AI_MODEL_EVENT_GENERATION`, `AI_MODEL_EVENT_MODIFICATION`, `AI_MODEL_POST_ACTIVITY_FEEDBACK`, `AI_MODEL_FEEDBACK_EXTRACTION`, `AI_MODEL_TRIMP_ESTIMATION` and `AI_MODEL_ACTIVITY_SUMMARY` override one feature. A feature whose model has no key configured is simply unavailable on the instance keys.
 
 - **Who may use the instance keys**: `AI_HOSTED_ACCESS=everyone` (default without Stripe), `subscribers` (users whose plan includes AI), or `none`.
 - **Monthly budget**: `AI_HOSTED_MONTHLY_BUDGET_USD` caps what each user may spend per month on the instance keys, in US dollars at the providers' prices, for example `3`. Calls are charged at their model's price (input and output tokens apart); a model the API does not know is charged like a flagship model. Once the budget is used, features run only on the user's own key until the next month. Unset, usage is not limited. Users see the share they used in Settings > AI.

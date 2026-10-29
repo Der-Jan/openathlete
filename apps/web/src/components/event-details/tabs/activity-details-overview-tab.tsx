@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { ActivityEvent, ActivityStream } from '@openathlete/shared';
 
 import { ActivityStreamsChart } from '../../activity-analysis/activity-streams-chart';
+import { AiSummaryCard } from '../../activity-analysis/ai-summary-card';
 import { DecouplingCard } from '../../activity-analysis/decoupling-card';
 import { availableLapSources, climbsOf } from '../../activity-analysis/laps';
 import { LapsCard } from '../../activity-analysis/laps-card';
@@ -100,6 +101,7 @@ export function ActivityDetailsOverviewTab({
     <>
       <ActivitySectionNav sections={sections} />
       <PlanBanner event={event} options={lapOptions} />
+      <AiSummaryCard event={event} />
       <SectionAnchor id={id('summary')} />
       <Card className={hasMap ? 'col-span-2 sm:col-span-1' : 'col-span-2'}>
         <CardHeader>

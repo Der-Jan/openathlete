@@ -26,6 +26,13 @@ const trainingEvent = {
 
 function answerFor(messages) {
   const text = JSON.stringify(messages);
+  if (text.includes('headline')) {
+    return {
+      headline: 'A steady run, the climbs costing a little time',
+      points: ['50 m of climbing cost about 1:35 against flat ground'],
+      suggestion: null,
+    };
+  }
   if (text.includes('extractedRpe')) return { extractedRpe: 0.6 };
   if (text.includes('"injuries"')) return { injuries: [] };
   if (text.includes('questions')) {

@@ -16,6 +16,7 @@ export const HOSTED_MODEL_ENV_VARS: Record<AiFeatureTask, string[]> = {
     'AI_MODEL_EXTRACT_INJURY',
   ],
   [AiTask.TRAINING_LOAD_ESTIMATION]: ['AI_MODEL_TRIMP_ESTIMATION'],
+  [AiTask.ACTIVITY_SUMMARY]: ['AI_MODEL_ACTIVITY_SUMMARY'],
 };
 
 /**
@@ -31,6 +32,7 @@ export const DEFAULT_HOSTED_MODELS: Record<AiFeatureTask, string> = {
   [AiTask.POST_ACTIVITY_QUESTIONS]: DEFAULT_HOSTED_MODEL,
   [AiTask.FEEDBACK_EXTRACTION]: DEFAULT_HOSTED_MODEL,
   [AiTask.TRAINING_LOAD_ESTIMATION]: DEFAULT_HOSTED_MODEL,
+  [AiTask.ACTIVITY_SUMMARY]: DEFAULT_HOSTED_MODEL,
 };
 
 export type ClaudeEffort = 'low' | 'medium' | 'high';
@@ -46,6 +48,8 @@ export const CLAUDE_EFFORT: Record<AiFeatureTask, ClaudeEffort> = {
   [AiTask.POST_ACTIVITY_QUESTIONS]: 'low',
   [AiTask.FEEDBACK_EXTRACTION]: 'low',
   [AiTask.TRAINING_LOAD_ESTIMATION]: 'low',
+  // Explaining causes from figures takes some reasoning
+  [AiTask.ACTIVITY_SUMMARY]: 'medium',
 };
 
 /** The effort to send, or none: older Claude models reject the parameter */

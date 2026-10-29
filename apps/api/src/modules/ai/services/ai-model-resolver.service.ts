@@ -178,6 +178,7 @@ export class AiModelResolverService {
       AiTask.POST_ACTIVITY_QUESTIONS,
       AiTask.FEEDBACK_EXTRACTION,
       AiTask.TRAINING_LOAD_ESTIMATION,
+      AiTask.ACTIVITY_SUMMARY,
     ];
     const entries = await Promise.all(
       AI_FEATURE_TASKS.map(async (task) => {

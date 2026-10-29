@@ -198,6 +198,11 @@ model EventActivity {
   feedbackSkipped        Boolean            @default(false) @map("feedback_skipped")
   /// When the AI last read the feedback answers for pain and RPE (null: not yet)
   feedbackAnalyzedAt     DateTime?          @map("feedback_analyzed_at")
+  /// What the AI read in the activity: headline, points and a suggestion
+  /// (shape in libs/shared activityAiSummarySchema); null until it ran
+  aiSummary              Json?              @map("ai_summary")
+  /// When the summary was written, to tell it from one not attempted yet
+  aiSummaryAt            DateTime?          @map("ai_summary_at")
 
   // relationships
   event               Event                       @relation(fields: [eventId], references: [eventId])

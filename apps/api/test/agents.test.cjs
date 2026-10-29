@@ -23,6 +23,8 @@ process.env.JWT_SECRET_KEY ??= 'test-jwt-secret-at-least-32-characters-long';
 process.env.DATABASE_URL ??= 'postgresql://test:test@localhost:5432/test';
 
 const {
+  activitySummaryAgent,
+  activitySummaryOutputSchema,
   eventGenerationAgent,
   extractRpeAgent,
   rpeOutputSchema,
@@ -212,6 +214,52 @@ test('hosted Claude 5.x gets the workout schema in the prompt, at the effort of 
   assert.equal(request.body.tools, undefined);
   assert.equal(event.workout.steps[0].durationValue, 3600);
   assert.equal(request.body.temperature, undefined);
+});
+
+test('summarises an activity on hosted Claude, at a medium effort', async () => {
+  const summary = {
+    headline: 'Tempo held, 54 s lost to the heat',
+    points: ['7% of drift after the warm-up, in 27 °C'],
+    suggestion: null,
+  };
+  providersAnswer(JSON.stringify(summary));
+
+  const result = await ai.generateObject(
+    activitySummaryAgent,
+    {
+      ...model({ id: 'anthropic/claude-haiku-5-5' }, 'hosted'),
+      task: 'ACTIVITY_SUMMARY',
+      provider: 'anthropic',
+      modelId: 'claude-haiku-5-5',
+    },
+    '=== ACTIVITY ===\nName: Tempo',
+    activitySummaryOutputSchema,
+  );
+
+  const [request] = requests;
+  assert.equal(request.headers.get('x-api-key'), 'sk-instance-anthropic');
+  assert.equal(request.body.output_config.effort, 'medium');
+  assert.match(JSON.stringify(request.body), /explain/i);
+  assert.deepEqual(result, summary);
+});
+
+test('a summary with too many points is refused, not stored', async () => {
+  providersAnswer(
+    JSON.stringify({
+      headline: 'Good run',
+      points: ['a', 'b', 'c', 'd'],
+      suggestion: null,
+    }),
+  );
+
+  await assert.rejects(
+    ai.generateObject(
+      activitySummaryAgent,
+      model({ id: 'openai/gpt-5.1', apiKey: 'sk-user-openai' }),
+      'Run',
+      activitySummaryOutputSchema,
+    ),
+  );
 });
 
 test('older Claude models get no effort, which they reject', async () => {

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export { activityAiSummarySchema as activitySummaryOutputSchema } from '@openathlete/shared';
+
 /**
  * Outputs of the agents that return data. The AI service validates answers
  * against them, whatever the provider: no more JSON parsing from free text.

@@ -398,6 +398,12 @@ export const ApiEnvSchema = z
       .string()
       .optional()
       .describe('AI model for TRIMP estimation agent (e.g., gpt-4o, gpt-5.1)'),
+    AI_MODEL_ACTIVITY_SUMMARY: z
+      .string()
+      .optional()
+      .describe(
+        'AI model for the summary of an activity (e.g. anthropic/claude-haiku-5-5)',
+      ),
 
     // Redis
     REDIS_URL: z
