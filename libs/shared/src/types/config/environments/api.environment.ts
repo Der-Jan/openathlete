@@ -362,7 +362,7 @@ export const ApiEnvSchema = z
       .string()
       .optional()
       .describe(
-        'Instance model for every AI feature without its own variable (e.g. openai/gpt-5.1, anthropic/claude-sonnet-4-5)',
+        'Instance model for every AI feature without its own variable (e.g. openai/gpt-5.6-luna, anthropic/claude-haiku-5-5)',
       ),
     AI_MODEL_FEEDBACK_EXTRACTION: z
       .string()

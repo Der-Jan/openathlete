@@ -33,6 +33,33 @@ export const DEFAULT_HOSTED_MODELS: Record<AiFeatureTask, string> = {
   [AiTask.TRAINING_LOAD_ESTIMATION]: DEFAULT_HOSTED_MODEL,
 };
 
+export type ClaudeEffort = 'low' | 'medium' | 'high';
+
+/**
+ * Reasoning effort per feature on the Claude models that take one (the 5.x
+ * generation, which reasons by default and bills it as output): the short
+ * background extractions need little, workouts more.
+ */
+export const CLAUDE_EFFORT: Record<AiFeatureTask, ClaudeEffort> = {
+  [AiTask.EVENT_GENERATION]: 'medium',
+  [AiTask.EVENT_MODIFICATION]: 'medium',
+  [AiTask.POST_ACTIVITY_QUESTIONS]: 'low',
+  [AiTask.FEEDBACK_EXTRACTION]: 'low',
+  [AiTask.TRAINING_LOAD_ESTIMATION]: 'low',
+};
+
+/** The effort to send, or none: older Claude models reject the parameter */
+export function claudeEffortFor(
+  task: AiFeatureTask,
+  provider: string,
+  modelId: string,
+): ClaudeEffort | undefined {
+  return provider === 'anthropic' &&
+    /^claude-(haiku|sonnet|opus|fable)-5/.test(modelId)
+    ? CLAUDE_EFFORT[task]
+    : undefined;
+}
+
 /** US dollars per million tokens. */
 export interface ModelPrice {
   input: number;
@@ -52,6 +79,11 @@ export const HOSTED_MODEL_PRICES: Record<string, ModelPrice> = {
   'openai/gpt-5-mini': { input: 0.25, output: 2 },
   'openai/gpt-5.1': { input: 1.25, output: 10 },
   'openai/gpt-5': { input: 1.25, output: 10 },
+  // Haiku 5.5 costs more beyond 100K prompt tokens, which no feature sends
+  'anthropic/claude-haiku-5-5': { input: 0.1, output: 0.5 },
+  'anthropic/claude-sonnet-5-5': { input: 2, output: 10 },
+  'anthropic/claude-opus-5-5': { input: 4, output: 20 },
+  'anthropic/claude-haiku-4-5': { input: 1, output: 5 },
   // Gemini 3.x prices double on 1 January 2027; these are the new ones
   'google/gemini-3.1-flash-lite': { input: 0.5, output: 3 },
   'google/gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },

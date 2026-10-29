@@ -1,6 +1,11 @@
 import { AiTask } from '@openathlete/shared';
 
-import { DEFAULT_HOSTED_MODELS, hostedModelFor } from './ai-models.constant';
+import {
+  DEFAULT_HOSTED_MODELS,
+  claudeEffortFor,
+  hostedCallCostMicroUsd,
+  hostedModelFor,
+} from './ai-models.constant';
 
 describe('hostedModelFor', () => {
   it('uses the built-in default without configuration', () => {
@@ -40,5 +45,42 @@ describe('hostedModelFor', () => {
         AI_MODEL_EXTRACT_RPE: 'openai/gpt-4o',
       }),
     ).toBe('mistral/mistral-large-latest');
+  });
+});
+
+describe('claudeEffortFor', () => {
+  it('reasons more on workouts than on background extractions', () => {
+    expect(
+      claudeEffortFor(
+        AiTask.EVENT_GENERATION,
+        'anthropic',
+        'claude-sonnet-5-5',
+      ),
+    ).toBe('medium');
+    expect(
+      claudeEffortFor(
+        AiTask.FEEDBACK_EXTRACTION,
+        'anthropic',
+        'claude-haiku-5-5',
+      ),
+    ).toBe('low');
+  });
+
+  it('sends none to models that reject it', () => {
+    expect(
+      claudeEffortFor(AiTask.EVENT_GENERATION, 'anthropic', 'claude-haiku-4-5'),
+    ).toBeUndefined();
+    expect(
+      claudeEffortFor(AiTask.EVENT_GENERATION, 'openai', 'gpt-5.6-luna'),
+    ).toBeUndefined();
+  });
+});
+
+describe('HOSTED_MODEL_PRICES', () => {
+  it('prices the Claude models hosted AI runs on', () => {
+    // 1,000 input and 1,000 output tokens on Haiku 5.5: $0.0006
+    expect(
+      hostedCallCostMicroUsd('anthropic/claude-haiku-5-5', 1000, 1000),
+    ).toBe(600);
   });
 });

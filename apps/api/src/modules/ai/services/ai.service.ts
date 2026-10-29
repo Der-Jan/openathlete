@@ -6,6 +6,10 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { AiErrorCode } from '@openathlete/shared';
 
+import {
+  ClaudeEffort,
+  claudeEffortFor,
+} from 'src/common/constants/ai-models.constant';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 
 import { AiProviderException, toAiProviderException } from '../ai.errors';
@@ -31,6 +35,14 @@ const callSettings = () => ({
   abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
 });
 
+/** Claude's reasoning effort for the feature, where the model takes one */
+const anthropicOptions = (
+  model: ResolvedAiModel,
+): { anthropic?: { effort: ClaudeEffort } } => {
+  const effort = claudeEffortFor(model.task, model.provider, model.modelId);
+  return effort ? { anthropic: { effort } } : {};
+};
+
 /**
  * Runs AI agents on the model the resolver picked: the user's own key or the
  * instance's. Every model call of the API goes through here, so errors are
@@ -51,7 +63,10 @@ export class AiService {
     prompt: string,
   ): Promise<string> {
     const result = await this.run(model, () =>
-      this.createAgent(agent, model.config).generate(prompt, callSettings()),
+      this.createAgent(agent, model.config).generate(prompt, {
+        ...callSettings(),
+        providerOptions: anthropicOptions(model),
+      }),
     );
     if (!result.text) {
       throw new AiProviderException(
@@ -77,7 +92,10 @@ export class AiService {
       this.createAgent(agent, model.config).generate(prompt, {
         ...callSettings(),
         structuredOutput: { schema, jsonPromptInjection: 'auto' },
-        providerOptions: { openai: { strictJsonSchema: false } },
+        providerOptions: {
+          openai: { strictJsonSchema: false },
+          ...anthropicOptions(model),
+        },
       }),
     );
     if (result.object === undefined || result.object === null) {

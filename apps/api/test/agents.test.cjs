@@ -187,6 +187,46 @@ test("Anthropic runs on the user's key", async () => {
   assert.equal(event.workout.steps[0].durationValue, 3600);
 });
 
+test('hosted Claude 5.x answers in native JSON at the effort of the feature', async () => {
+  providersAnswer(JSON.stringify(generatedEvent));
+
+  await ai.generateObject(
+    eventGenerationAgent,
+    {
+      ...model({ id: 'anthropic/claude-sonnet-5-5' }, 'hosted'),
+      provider: 'anthropic',
+      modelId: 'claude-sonnet-5-5',
+    },
+    '1h easy run',
+    trainingEventSchema,
+  );
+
+  const [request] = requests;
+  assert.equal(request.headers.get('x-api-key'), 'sk-instance-anthropic');
+  assert.equal(request.body.output_config.effort, 'medium');
+  assert.equal(request.body.output_config.format.type, 'json_schema');
+  // Forced tool use is refused by Claude 5.5 models
+  assert.equal(request.body.tool_choice, undefined);
+  assert.equal(request.body.temperature, undefined);
+});
+
+test('older Claude models get no effort, which they reject', async () => {
+  providersAnswer('Nice session!');
+
+  await ai.generateText(
+    extractRpeAgent,
+    {
+      ...model({ id: 'anthropic/claude-haiku-4-5', apiKey: 'sk-ant-user' }),
+      provider: 'anthropic',
+      modelId: 'claude-haiku-4-5',
+    },
+    'Hi',
+  );
+
+  const [request] = requests;
+  assert.equal(request.body.output_config?.effort, undefined);
+});
+
 test('counts the tokens each provider reports', async () => {
   providersAnswer('Nice session!');
 
