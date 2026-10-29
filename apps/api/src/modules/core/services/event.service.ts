@@ -308,7 +308,58 @@ export class EventService {
       throw new NotFoundException('Event not found');
     }
 
-    return this.prismaEventToEvent(event);
+    const plannedSession = event.activity
+      ? await this.getPlannedSessionOf(event.activity.eventActivityId)
+      : null;
+    return {
+      ...this.prismaEventToEvent(event),
+      ...(plannedSession ? { plannedSession } : {}),
+    };
+  }
+
+  /**
+   * The training or race an activity was linked to, with its workout, so
+   * the activity can show how it went against the plan. Only read for one
+   * activity: calendar lists don't carry workouts for every activity.
+   */
+  private async getPlannedSessionOf(eventActivityId: number) {
+    const training = await this.prisma.eventTraining.findUnique({
+      where: { relatedActivityId: eventActivityId },
+      select: {
+        eventId: true,
+        goalDuration: true,
+        goalDistance: true,
+        event: { select: { name: true } },
+        workout: EVENT_INCLUDES.training.include.workout,
+      },
+    });
+    if (training) {
+      const { event, workout, ...goals } = training;
+      return {
+        type: EVENT_TYPE.TRAINING,
+        name: event.name,
+        ...goals,
+        workout: workout ?? undefined,
+      };
+    }
+
+    const competition = await this.prisma.eventCompetition.findUnique({
+      where: { relatedActivityId: eventActivityId },
+      select: {
+        eventId: true,
+        goalDuration: true,
+        goalDistance: true,
+        event: { select: { name: true } },
+      },
+    });
+    if (!competition) return null;
+    const { event, ...goals } = competition;
+    return {
+      type: EVENT_TYPE.COMPETITION,
+      name: event.name,
+      ...goals,
+      workout: undefined,
+    };
   }
 
   async getEventsOfAthlete(user: AuthUser, startDate?: Date, endDate?: Date) {
