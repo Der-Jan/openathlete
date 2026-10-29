@@ -1,18 +1,13 @@
 import { useGetMyAthleteQuery } from '@/api/athlete';
 import { useGetEventStreamQuery, useGetEventWeatherQuery } from '@/api/event';
 import { m } from '@/paraglide/messages';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
-import {
-  ActivityEvent,
-  getSportConfig,
-  paceDistanceMeters,
-} from '@openathlete/shared';
+import { ActivityEvent } from '@openathlete/shared';
 
 import { ActivityFeedbackOverlay } from '../activity-feedback/activity-feedback-overlay';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ActivityDetailsOverviewTab } from './tabs/activity-details-overview-tab';
-import { ActivityDetailsSplitsTab } from './tabs/activity-details-splits-tab';
 import { ActivityDetailsWeatherTab } from './tabs/activity-details-weather-tab';
 
 interface P {
@@ -37,15 +32,6 @@ export function ActivityDetails({ event }: P) {
     'temp',
     'cadence',
   ]);
-  const sportConfig = getSportConfig(event.sport);
-  const hasSplits = useMemo(() => {
-    if (!sportConfig.showSplits) return false;
-    const d = stream?.distance;
-    if (!d?.length) return false;
-    const lastDistance = d[d.length - 1] ?? 0;
-    return lastDistance >= paceDistanceMeters(sportConfig.speedUnit);
-  }, [stream?.distance, sportConfig.showSplits, sportConfig.speedUnit]);
-
   const { data: weather } = useGetEventWeatherQuery(event.eventId, {
     retry: 1,
   });
@@ -65,9 +51,6 @@ export function ActivityDetails({ event }: P) {
         <Tabs defaultValue="overview" className="flex flex-col gap-4">
           <TabsList>
             <TabsTrigger value="overview">{m.overview()}</TabsTrigger>
-            {hasSplits && (
-              <TabsTrigger value="splits">{m.splits()}</TabsTrigger>
-            )}
             {weather && (
               <TabsTrigger value="weather">{m.weather()}</TabsTrigger>
             )}
@@ -82,11 +65,6 @@ export function ActivityDetails({ event }: P) {
               onReopenFeedback={() => setFeedbackMode('edit')}
             />
           </TabsContent>
-          {hasSplits && (
-            <TabsContent value="splits">
-              <ActivityDetailsSplitsTab stream={stream} sport={event.sport} />
-            </TabsContent>
-          )}
           {weather && (
             <TabsContent value="weather">
               <ActivityDetailsWeatherTab data={weather} stream={stream} />

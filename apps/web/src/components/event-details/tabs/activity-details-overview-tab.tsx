@@ -5,13 +5,15 @@ import { useMemo, useState } from 'react';
 import { ActivityEvent, ActivityStream } from '@openathlete/shared';
 
 import { ActivityStreamsChart } from '../../activity-analysis/activity-streams-chart';
+import { LapsCard } from '../../activity-analysis/laps-card';
+import { useLapOptions } from '../../activity-analysis/laps-options';
+import { PlanBanner } from '../../activity-analysis/plan-banner';
 import {
   XAxisKind,
   defaultXAxis,
   xSeries,
 } from '../../activity-analysis/stream-range';
 import { HeartrateDistributionChart } from '../../charts/heartrate-distribution-chart';
-import { SegmentsChart } from '../../charts/segments-chart';
 import { ActivityRecordsCharts } from '../../records/activity-records-charts';
 import { ChartRecord } from '../../records/record-metrics';
 import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
@@ -56,6 +58,7 @@ export function ActivityDetailsOverviewTab({
     return series?.length ? [series[0], series[series.length - 1]] : undefined;
   }, [stream, xAxis]);
 
+  const lapOptions = useLapOptions(event, stream);
   const hasMap = !!stream?.latlng?.length && !!fullDomain;
   const laps = event.segments?.filter(
     (segment) => segment.segmentType === 'LAP',
@@ -75,6 +78,7 @@ export function ActivityDetailsOverviewTab({
 
   const content = (
     <>
+      <PlanBanner event={event} options={lapOptions} />
       <Card className="col-span-2 sm:col-span-1">
         <CardHeader>
           <CardTitle>{m.statistics()}</CardTitle>
@@ -109,16 +113,6 @@ export function ActivityDetailsOverviewTab({
           </CardContent>
         </Card>
       )}
-      {!!event.segments?.length && (
-        <Card className="col-span-2">
-          <CardHeader>
-            <CardTitle>{m.segments()}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <SegmentsChart segments={event.segments} sport={event.sport} />
-          </CardContent>
-        </Card>
-      )}
       {stream && (
         <ActivityStreamsChart
           stream={stream}
@@ -127,6 +121,7 @@ export function ActivityDetailsOverviewTab({
           onHover={setHover}
         />
       )}
+      <LapsCard event={event} options={lapOptions} />
       {!!event.records?.length && (
         <ActivityRecordsCharts
           records={event.records as ChartRecord[]}

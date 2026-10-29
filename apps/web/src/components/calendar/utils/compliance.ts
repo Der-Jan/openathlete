@@ -61,13 +61,24 @@ export function getCompliance(
       : { status: 'pending' };
   }
 
-  if (event.goalDuration && activity.movingTime) {
-    const ratio = activity.movingTime / event.goalDuration;
+  return complianceAgainstGoals(event, activity);
+}
+
+/**
+ * Done against planned, once an activity is linked: shared by the calendar
+ * card and the activity's own view so both grade the same way.
+ */
+export function complianceAgainstGoals(
+  goals: { goalDuration?: number | null; goalDistance?: number | null },
+  done: { movingTime?: number | null; distance?: number | null },
+): Compliance {
+  if (goals.goalDuration && done.movingTime) {
+    const ratio = done.movingTime / goals.goalDuration;
     return { status: statusForRatio(ratio), ratio, metric: 'duration' };
   }
 
-  if (event.goalDistance && activity.distance) {
-    const ratio = activity.distance / event.goalDistance;
+  if (goals.goalDistance && done.distance) {
+    const ratio = done.distance / goals.goalDistance;
     return { status: statusForRatio(ratio), ratio, metric: 'distance' };
   }
 
