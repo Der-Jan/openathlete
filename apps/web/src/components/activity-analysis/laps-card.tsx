@@ -74,6 +74,7 @@ export function LapsCard({ event, options }: P) {
     cadence: config.showCadence && has((row) => row.stats.averageCadence),
     elevation: config.showElevation && has((row) => row.stats.elevationGainM),
     target: source === 'plan' && rows.some((row) => row.target),
+    climb: source === 'climbs',
   };
 
   const speed = (value: number) =>
@@ -112,6 +113,8 @@ export function LapsCard({ event, options }: P) {
   const sourceLabel = (value: LapSource) => {
     if (value === 'plan') return m.activity_laps_source_plan();
     if (value === 'device') return m.activity_laps_source_device();
+    if (value === 'intervals') return m.activity_laps_source_intervals();
+    if (value === 'climbs') return m.activity_laps_source_climbs();
     const meters = options.splitMeters ?? 1000;
     return m.activity_laps_source_splits({
       distance:
@@ -220,6 +223,16 @@ export function LapsCard({ event, options }: P) {
                     {m.elevation_gain()}
                   </TableHead>
                 )}
+                {columns.climb && (
+                  <>
+                    <TableHead className="text-right">
+                      {m.activity_climb_grade()}
+                    </TableHead>
+                    <TableHead className="text-right">
+                      {m.activity_climb_category()}
+                    </TableHead>
+                  </>
+                )}
                 {columns.target && (
                   <TableHead>{m.activity_laps_target()}</TableHead>
                 )}
@@ -296,6 +309,19 @@ export function LapsCard({ event, options }: P) {
                         ? Math.round(row.stats.elevationGainM)
                         : '–'}
                     </TableCell>
+                  )}
+                  {columns.climb && row.climb && (
+                    <>
+                      <TableCell className="text-right">
+                        {(row.climb.grade * 100).toFixed(1)}
+                        {m.percent_symbol()}
+                      </TableCell>
+                      <TableCell className="text-right" data-climb-category>
+                        {row.climb.category === 'HC'
+                          ? m.activity_climb_hc()
+                          : (row.climb.category ?? '–')}
+                      </TableCell>
+                    </>
                   )}
                   {columns.target && (
                     <TableCell className="whitespace-nowrap">

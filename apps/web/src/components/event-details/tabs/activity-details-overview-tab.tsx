@@ -6,7 +6,7 @@ import { ActivityEvent, ActivityStream } from '@openathlete/shared';
 
 import { ActivityStreamsChart } from '../../activity-analysis/activity-streams-chart';
 import { DecouplingCard } from '../../activity-analysis/decoupling-card';
-import { availableLapSources } from '../../activity-analysis/laps';
+import { availableLapSources, climbsOf } from '../../activity-analysis/laps';
 import { LapsCard } from '../../activity-analysis/laps-card';
 import { useLapOptions } from '../../activity-analysis/laps-options';
 import { PlanBanner } from '../../activity-analysis/plan-banner';
@@ -65,6 +65,7 @@ export function ActivityDetailsOverviewTab({
   }, [stream, xAxis]);
 
   const lapOptions = useLapOptions(event, stream);
+  const climbs = useMemo(() => climbsOf(stream), [stream]);
   const hasMap = !!stream?.latlng?.length && !!fullDomain;
   const laps = event.segments?.filter(
     (segment) => segment.segmentType === 'LAP',
@@ -117,6 +118,7 @@ export function ActivityDetailsOverviewTab({
           pins={hoverPin}
           distance={stream.distance}
           time={stream.time}
+          climbs={climbs}
         />
       )}
       {stream && (

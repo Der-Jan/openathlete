@@ -67,6 +67,7 @@ export function useLapOptions(
     ].filter((zone) => zone.id > 0);
     return {
       stream,
+      sport: event.sport,
       laps: (event.segments ?? []).filter(
         (segment) => segment.segmentType === 'LAP',
       ),

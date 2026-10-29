@@ -1,6 +1,7 @@
 import {
   ActivitySegment,
   ActivityStream,
+  SPORT_TYPE,
   TRAINING_ZONE_TYPE,
   WORKOUT_DURATION_TYPE,
   WORKOUT_STEP_TYPE,
@@ -11,10 +12,12 @@ import {
   getTargetIntensity,
 } from '@openathlete/shared';
 
+import { Climb, detectClimbs, detectIntervals } from './detection';
 import { RangeStats, computeRangeStats, indexRange } from './stream-range';
+import { buildChartRows } from './tracks';
 
 /** Where a lap table's rows come from */
-export type LapSource = 'plan' | 'device' | 'splits';
+export type LapSource = 'plan' | 'device' | 'intervals' | 'climbs' | 'splits';
 
 /** A step of the workout, repeats unrolled */
 export interface PlannedStep {
@@ -48,6 +51,7 @@ export interface LapRow {
   compliance?: StepCompliance;
   /** A work interval, as opposed to warm-up, recovery or cool-down */
   active: boolean;
+  climb?: Climb;
 }
 
 /** A zone a ZONE target points to, its bounds in the unit of its type */
@@ -254,6 +258,7 @@ export function placePlannedSteps(
 
 export interface LapOptions {
   stream?: ActivityStream;
+  sport: SPORT_TYPE;
   laps: ActivitySegment[];
   workout?: Pick<Workout, 'steps'>;
   /** Undefined for sports that aren't cut into splits */
@@ -268,6 +273,8 @@ export function availableLapSources(options: LapOptions): LapSource[] {
   const sources: LapSource[] = [];
   if (planRows(options).length) sources.push('plan');
   if (options.laps.length > 1) sources.push('device');
+  if (intervalRows(options).length) sources.push('intervals');
+  if (climbRows(options).length) sources.push('climbs');
   if (splitRows(options).length > 1) sources.push('splits');
   return sources;
 }
@@ -357,9 +364,69 @@ function splitRows({ stream, splitMeters }: LapOptions): LapRow[] {
   return rows;
 }
 
+/** The hard stretches of an activity done as intervals, power first */
+function intervalRows({ stream, sport }: LapOptions): LapRow[] {
+  const time = stream?.time;
+  if (!stream || !time?.length) return [];
+  const { rows, tracks } = buildChartRows(stream, sport, 'time', {
+    smooth: false,
+  });
+  const track = tracks.includes('power')
+    ? 'power'
+    : tracks.includes('speed')
+      ? 'speed'
+      : undefined;
+  if (!track) return [];
+  return detectIntervals(
+    rows.map((row) => row[track] ?? null),
+    time,
+  ).flatMap((interval, n): LapRow[] => {
+    const stats = computeRangeStats(stream, [interval.start, interval.end]);
+    return stats
+      ? [
+          {
+            key: `interval-${n}`,
+            startTime: time[interval.start],
+            endTime: time[interval.end],
+            stats,
+            active: true,
+          },
+        ]
+      : [];
+  });
+}
+
+export function climbsOf(stream: ActivityStream | undefined): Climb[] {
+  const { altitude, distance } = stream ?? {};
+  if (!altitude?.length || !distance?.length) return [];
+  return detectClimbs(altitude, distance);
+}
+
+function climbRows({ stream }: LapOptions): LapRow[] {
+  const time = stream?.time;
+  if (!stream || !time?.length) return [];
+  return climbsOf(stream).flatMap((climb, n): LapRow[] => {
+    const stats = computeRangeStats(stream, [climb.start, climb.end]);
+    return stats
+      ? [
+          {
+            key: `climb-${n}`,
+            startTime: time[climb.start],
+            endTime: time[climb.end],
+            stats,
+            active: true,
+            climb,
+          },
+        ]
+      : [];
+  });
+}
+
 export function lapRows(source: LapSource, options: LapOptions): LapRow[] {
   if (source === 'plan') return planRows(options);
   if (source === 'device') return deviceRows(options);
+  if (source === 'intervals') return intervalRows(options);
+  if (source === 'climbs') return climbRows(options);
   return splitRows(options);
 }
 

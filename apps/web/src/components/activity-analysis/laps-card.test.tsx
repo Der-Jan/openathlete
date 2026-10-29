@@ -83,6 +83,7 @@ const laps = [0, 300].map(
 );
 const options: LapOptions = {
   stream,
+  sport: SPORT_TYPE.RUNNING,
   laps,
   workout,
   splitMeters: 1000,

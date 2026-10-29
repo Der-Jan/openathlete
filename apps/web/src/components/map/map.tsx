@@ -6,6 +6,7 @@ import {
   MapContainer,
   Polyline,
   TileLayer,
+  Tooltip,
   useMap,
 } from 'react-leaflet';
 
@@ -16,14 +17,29 @@ import {
   splitGpsPath,
 } from '@openathlete/shared';
 
+/** A part of the track drawn over it, such as a climb, that can be picked */
+export interface MapHighlight {
+  key: string;
+  path: number[][];
+  label: string;
+  onClick?: () => void;
+}
+
 interface P {
   className?: string;
   polyline: number[][];
   focusPolyline?: number[][];
   pins?: number[][];
+  highlights?: MapHighlight[];
 }
 
-export function Map({ className, polyline, focusPolyline, pins }: P) {
+export function Map({
+  className,
+  polyline,
+  focusPolyline,
+  pins,
+  highlights,
+}: P) {
   const validPoints = polyline.filter(isValidGpsPoint);
   if (!validPoints.length) return null;
   const center = findPathCenter(validPoints);
@@ -49,6 +65,18 @@ export function Map({ className, polyline, focusPolyline, pins }: P) {
           pathOptions={{ color: 'black' }}
         />
       )}
+      {highlights?.map((highlight) => (
+        <Polyline
+          key={highlight.key}
+          positions={splitGpsPath(highlight.path).map(convert)}
+          pathOptions={{ color: '#f97316', weight: 6, opacity: 0.8 }}
+          eventHandlers={
+            highlight.onClick ? { click: highlight.onClick } : undefined
+          }
+        >
+          <Tooltip sticky>{highlight.label}</Tooltip>
+        </Polyline>
+      ))}
       {convertedFocusPolyline && (
         <Polyline
           positions={convertedFocusPolyline}

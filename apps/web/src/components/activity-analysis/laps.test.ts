@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ActivitySegment,
+  SPORT_TYPE,
   TRAINING_ZONE_TYPE,
   WORKOUT_DURATION_TYPE,
   WORKOUT_STEP_TYPE,
@@ -86,6 +87,7 @@ const stream = {
 
 const options = (overrides: Partial<LapOptions> = {}): LapOptions => ({
   stream,
+  sport: SPORT_TYPE.RUNNING,
   laps: [],
   workout,
   splitMeters: 1000,
@@ -250,5 +252,40 @@ describe('lapRows', () => {
     expect(availableLapSources(options({ workout: undefined }))).toEqual([
       'splits',
     ]);
+  });
+});
+
+describe('detected lap sources', () => {
+  it('lists the climbs, graded', () => {
+    // 1 km flat then 2 km at 6%, a sample every 10 s at 2.5 m/s
+    const n = 1201;
+    const climbing = {
+      time: range(n, (i) => i * 10),
+      distance: range(n, (i) => i * 2.5),
+      altitude: range(n, (i) =>
+        i * 2.5 < 1000 ? 50 : 50 + (i * 2.5 - 1000) * 0.06,
+      ),
+    };
+    const opts = options({ stream: climbing, workout: undefined });
+    expect(availableLapSources(opts)).toContain('climbs');
+    const [climb] = lapRows('climbs', opts);
+    expect(climb.climb!.grade).toBeCloseTo(0.06, 2);
+    expect(climb.stats.elevationGainM).toBeGreaterThan(100);
+  });
+
+  it('lists the hard stretches of an interval session', () => {
+    // 5 × (2 min at 4 m/s, 2 min at 2.5 m/s), a sample every 5 s
+    const time = range(241, (i) => i * 5);
+    let distance = 0;
+    const session = {
+      time,
+      distance: time.map((t, i) => {
+        if (i > 0) distance += (t % 240 < 120 ? 4 : 2.5) * 5;
+        return distance;
+      }),
+    };
+    const opts = options({ stream: session, workout: undefined });
+    expect(availableLapSources(opts)).toContain('intervals');
+    expect(lapRows('intervals', opts)).toHaveLength(5);
   });
 });
