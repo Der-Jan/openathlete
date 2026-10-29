@@ -13,7 +13,7 @@ import {
   defaultXAxis,
   xSeries,
 } from '../../activity-analysis/stream-range';
-import { HeartrateDistributionChart } from '../../charts/heartrate-distribution-chart';
+import { ZonesCard } from '../../activity-analysis/zones-card';
 import { ActivityRecordsCharts } from '../../records/activity-records-charts';
 import { ChartRecord } from '../../records/record-metrics';
 import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
@@ -99,24 +99,12 @@ export function ActivityDetailsOverviewTab({
         />
       )}
       {feedbackCard}
-      {stream?.heartrate && (
-        <Card className="col-span-2 sm:col-span-1">
-          <CardHeader>
-            <CardTitle>{m.heart_rate_distribution()}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <HeartrateDistributionChart
-              heartrateStream={stream.heartrate}
-              sport={event.sport}
-              duration={event.movingTime}
-            />
-          </CardContent>
-        </Card>
-      )}
+      {stream && <ZonesCard event={event} stream={stream} />}
       {stream && (
         <ActivityStreamsChart
           stream={stream}
           sport={event.sport}
+          athleteId={event.athleteId ?? undefined}
           laps={laps}
           onHover={setHover}
         />

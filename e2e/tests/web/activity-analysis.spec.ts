@@ -87,11 +87,17 @@ test('reads an activity against its plan, step by step and part by part', async 
     '135–155 bpm',
   );
 
-  // A step selects its part on the charts
+  // Time in the athlete's zones: the default heart rate zones here
+  const zones = page.locator('[data-zones-card="heartrate"]');
+  await expect(zones.locator('[data-zone]')).toHaveCount(5);
+  await expect(zones.locator('[data-zones-selection]')).toHaveCount(0);
+
+  // A step selects its part on the charts, and the zones follow it
   await laps.locator('[data-lap-row]').nth(1).click();
   const selection = page.locator('[data-selection-stats]');
   await expect(selection).toBeVisible();
   await expect(selection).toContainText('5:00');
+  await expect(zones.locator('[data-zones-selection]')).toBeVisible();
   await selection
     .getByRole('button', { name: 'Show the whole activity' })
     .click();

@@ -102,26 +102,32 @@ function smoothRuns(values: (number | null)[]): (number | null)[] {
  * Speed between consecutive samples, in m/s: from the distance stream when
  * it moves, as the summary does, else from the GPS points.
  */
-function speedSeries(stream: ActivityStream): (number | null)[] | undefined {
+function speedSeries(
+  stream: ActivityStream,
+  smooth: boolean,
+): (number | null)[] | undefined {
   const time = stream.time;
   if (!time?.length) return undefined;
   const distance = stream.distance;
   const moves = !!distance?.length && distance.some((d) => d !== distance[0]);
   if (!moves && !stream.latlng?.length) return undefined;
 
+  // Each sample's speed is the one until the next sample, the stretch
+  // time-weighted sums count it for
   const raw = time.map((t, i): number | null => {
-    if (i === 0) return null;
-    const dt = t - time[i - 1];
+    const next = i + 1;
+    if (next >= time.length) return null;
+    const dt = time[next] - t;
     if (!(dt > 0)) return null;
-    if (moves) return Math.max(0, (distance![i] - distance![i - 1]) / dt);
+    if (moves) return Math.max(0, (distance![next] - distance![i]) / dt);
     const point = stream.latlng![i];
-    const previous = stream.latlng![i - 1];
-    if (!isValidGpsPoint(point) || !isValidGpsPoint(previous)) return null;
-    return haversine(previous, point) / dt;
+    const following = stream.latlng![next];
+    if (!isValidGpsPoint(point) || !isValidGpsPoint(following)) return null;
+    return haversine(point, following) / dt;
   });
-  // The first sample has no previous one: borrow the next speed
-  raw[0] = raw[1] ?? null;
-  return smoothRuns(raw);
+  // The last sample has no next one: it keeps the speed it arrived at
+  if (raw.length > 1) raw[raw.length - 1] = raw[raw.length - 2];
+  return smooth ? smoothRuns(raw) : raw;
 }
 
 /**
@@ -132,6 +138,11 @@ export function buildChartRows(
   stream: ActivityStream | undefined,
   sport: SPORT_TYPE,
   xAxis: XAxisKind,
+  /**
+   * Smoothing reads well on a chart but lags behind changes of pace: sums
+   * such as time in zones take the raw speed
+   */
+  { smooth = true }: { smooth?: boolean } = {},
 ): { rows: ChartRow[]; tracks: TrackKey[] } {
   const time = stream?.time;
   const x = xSeries(stream, xAxis);
@@ -139,8 +150,12 @@ export function buildChartRows(
 
   const factor = cadenceFactor(sport);
   const series: Partial<Record<TrackKey, (number | null)[]>> = {
-    speed: speedSeries(stream),
-    gap: stream.gap?.length ? smoothRuns(stream.gap) : undefined,
+    speed: speedSeries(stream, smooth),
+    gap: stream.gap?.length
+      ? smooth
+        ? smoothRuns(stream.gap)
+        : stream.gap
+      : undefined,
     power: stream.watts,
     heartrate: stream.heartrate?.map((v) => (v > 0 ? v : null)),
     altitude: stream.altitude,

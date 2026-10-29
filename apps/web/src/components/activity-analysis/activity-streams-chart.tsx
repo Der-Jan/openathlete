@@ -48,6 +48,8 @@ const MIN_SELECTION_SHARE = 0.01;
 interface P {
   stream: ActivityStream;
   sport: SPORT_TYPE;
+  /** Whose zones colour the heart rate track */
+  athleteId?: number;
   /** Device laps, shaded every other one */
   laps?: ActivitySegment[];
   onHover?: (hover?: { index: number; time: number }) => void;
@@ -70,12 +72,22 @@ function rowAt(rows: ChartRow[], x: number): ChartRow | undefined {
  * reads all of them at once and moves the map's pin, dragging (with a mouse
  * or a finger) selects a part, whose figures show above.
  */
-export function ActivityStreamsChart({ stream, sport, laps, onHover }: P) {
+export function ActivityStreamsChart({
+  stream,
+  sport,
+  athleteId,
+  laps,
+  onHover,
+}: P) {
   const config = getSportConfig(sport);
   const { domain, setDomain, reset, fullDomain, xAxis, setXAxis } =
     useActivityDetailsSelection();
   const { hidden, toggle } = useHiddenTracks(sport);
-  const heartrateZones = useTrainingZones(TRAINING_ZONE_TYPE.HEARTRATE, sport);
+  const heartrateZones = useTrainingZones(
+    TRAINING_ZONE_TYPE.HEARTRATE,
+    sport,
+    athleteId,
+  );
   const plotRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number>();
   const [drag, setDrag] = useState<{ start: number; end: number }>();

@@ -107,27 +107,30 @@ export function useTrainingZones(
     });
   }, [trainingZones, sport]);
 
-  const filteredTrainingZones = finalTrainingZones
-    ?.filter((zone) => zone !== null)
-    .map((zone) => zone as Exclude<typeof zone, null>);
+  // Stable between renders: callers memoise what they compute from it
+  return useMemo(() => {
+    const filteredTrainingZones = finalTrainingZones
+      ?.filter((zone) => zone !== null)
+      .map((zone) => zone as Exclude<typeof zone, null>);
 
-  if (!filteredTrainingZones || filteredTrainingZones.length === 0) {
-    const defaultZones = DEFAULT_TRAINING_ZONES.find(
-      (zone) => zone.type === type,
-    )?.values;
-    if (defaultZones) {
-      // Add temporary IDs for default zones (negative IDs to avoid conflicts)
-      return defaultZones.map((zone, index) => ({
-        id: -(index + 1), // Negative IDs for default zones
-        name: zone.name,
-        description: zone.description,
-        color: zone.color,
-        min: zone.min,
-        max: zone.max,
-      }));
+    if (!filteredTrainingZones || filteredTrainingZones.length === 0) {
+      const defaultZones = DEFAULT_TRAINING_ZONES.find(
+        (zone) => zone.type === type,
+      )?.values;
+      if (defaultZones) {
+        // Add temporary IDs for default zones (negative IDs to avoid conflicts)
+        return defaultZones.map((zone, index) => ({
+          id: -(index + 1), // Negative IDs for default zones
+          name: zone.name,
+          description: zone.description,
+          color: zone.color,
+          min: zone.min,
+          max: zone.max,
+        }));
+      }
+      return [];
     }
-    return [];
-  }
 
-  return filteredTrainingZones;
+    return filteredTrainingZones;
+  }, [finalTrainingZones, type]);
 }
