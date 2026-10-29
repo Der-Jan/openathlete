@@ -17,8 +17,10 @@ interface P {
 
 export function ActivityDetails({ event }: P) {
   const { data: athlete } = useGetMyAthleteQuery();
-  const [showNormalView, setShowNormalView] = useState(false);
-  const [showEditFeedback, setShowEditFeedback] = useState(false);
+  // The post-activity questions open on request, never in front of the data
+  const [feedbackMode, setFeedbackMode] = useState<'answer' | 'edit' | null>(
+    null,
+  );
   const isMyActivity = athlete?.athleteId === event.athleteId;
   const { data: stream } = useGetEventStreamQuery(event.eventId, 3000, [
     'altitude',
@@ -46,18 +48,16 @@ export function ActivityDetails({ event }: P) {
 
   return (
     <>
-      {isMyActivity && (!showNormalView || showEditFeedback) && (
+      {isMyActivity && feedbackMode && (
         <ActivityFeedbackOverlay
           event={event}
-          onSkip={() => {
-            setShowNormalView(true);
-            setShowEditFeedback(false);
-          }}
-          isEditMode={showEditFeedback}
+          onSkip={() => setFeedbackMode(null)}
+          isEditMode={feedbackMode === 'edit'}
+          skipIntroScreen
         />
       )}
 
-      {(!isMyActivity || (showNormalView && !showEditFeedback)) && (
+      {!(isMyActivity && feedbackMode) && (
         <Tabs defaultValue="overview" className="flex flex-col gap-4">
           <TabsList>
             <TabsTrigger value="overview">{m.overview()}</TabsTrigger>
@@ -73,11 +73,9 @@ export function ActivityDetails({ event }: P) {
               event={event}
               stream={stream}
               isMyActivity={athlete?.athleteId === event.athleteId}
-              onEditFeedback={() => setShowEditFeedback(true)}
-              onReopenFeedback={() => {
-                setShowNormalView(false);
-                setShowEditFeedback(true);
-              }}
+              onAnswerFeedback={() => setFeedbackMode('answer')}
+              onEditFeedback={() => setFeedbackMode('edit')}
+              onReopenFeedback={() => setFeedbackMode('edit')}
             />
           </TabsContent>
           {hasSplits && (

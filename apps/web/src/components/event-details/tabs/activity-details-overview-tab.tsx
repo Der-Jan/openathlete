@@ -49,6 +49,7 @@ interface P {
   event: ActivityEvent;
   stream: ActivityStream | undefined;
   isMyActivity: boolean;
+  onAnswerFeedback?: () => void;
   onEditFeedback?: () => void;
   onReopenFeedback?: () => void;
 }
@@ -57,6 +58,7 @@ export function ActivityDetailsOverviewTab({
   event,
   stream,
   isMyActivity,
+  onAnswerFeedback,
   onEditFeedback,
   onReopenFeedback,
 }: P) {
@@ -108,6 +110,7 @@ export function ActivityDetailsOverviewTab({
           <ActivityQuickEditCard
             event={event}
             isMyActivity={isMyActivity}
+            onAnswerFeedback={onAnswerFeedback}
             onEditFeedback={onEditFeedback}
             onReopenFeedback={onReopenFeedback}
           />
@@ -131,6 +134,7 @@ export function ActivityDetailsOverviewTab({
                 <ActivityQuickEditCard
                   event={event}
                   isMyActivity={isMyActivity}
+                  onAnswerFeedback={onAnswerFeedback}
                   onEditFeedback={onEditFeedback}
                   onReopenFeedback={onReopenFeedback}
                 />
