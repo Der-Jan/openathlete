@@ -3,7 +3,11 @@ import { useGetEventStreamQuery, useGetEventWeatherQuery } from '@/api/event';
 import { m } from '@/paraglide/messages';
 import { useMemo, useState } from 'react';
 
-import { ActivityEvent, getSportConfig } from '@openathlete/shared';
+import {
+  ActivityEvent,
+  getSportConfig,
+  paceDistanceMeters,
+} from '@openathlete/shared';
 
 import { ActivityFeedbackOverlay } from '../activity-feedback/activity-feedback-overlay';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -39,8 +43,8 @@ export function ActivityDetails({ event }: P) {
     const d = stream?.distance;
     if (!d?.length) return false;
     const lastDistance = d[d.length - 1] ?? 0;
-    return Math.floor(lastDistance / 1000) > 0;
-  }, [stream?.distance, sportConfig.showSplits]);
+    return lastDistance >= paceDistanceMeters(sportConfig.speedUnit);
+  }, [stream?.distance, sportConfig.showSplits, sportConfig.speedUnit]);
 
   const { data: weather } = useGetEventWeatherQuery(event.eventId, {
     retry: 1,

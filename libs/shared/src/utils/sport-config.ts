@@ -214,11 +214,11 @@ export const SPORT_CONFIG: Record<SPORT_TYPE, SportStatisticsConfig> = {
     showPower: false,
     showCadence: false,
     showSplits: true,
-    speedUnit: 'min/km', // Could be adapted to min/100m if needed
+    speedUnit: 'min/100m',
     speedLabel: 'pace',
   },
 
-  // Water sports - use speed (km/h)
+  // Water sports - use speed (km/h), rowers count per 500 m
   [SPORT_TYPE.CANOEING]: {
     showDistance: true,
     showSpeed: true,
@@ -255,8 +255,8 @@ export const SPORT_CONFIG: Record<SPORT_TYPE, SportStatisticsConfig> = {
     showPower: true,
     showCadence: true,
     showSplits: true,
-    speedUnit: 'km/h',
-    speedLabel: 'speed',
+    speedUnit: 'min/500m',
+    speedLabel: 'pace',
   },
   [SPORT_TYPE.VIRTUAL_ROW]: {
     showDistance: true,
@@ -268,8 +268,8 @@ export const SPORT_CONFIG: Record<SPORT_TYPE, SportStatisticsConfig> = {
     showPower: true,
     showCadence: true,
     showSplits: true,
-    speedUnit: 'km/h',
-    speedLabel: 'speed',
+    speedUnit: 'min/500m',
+    speedLabel: 'pace',
   },
   [SPORT_TYPE.STAND_UP_PADDLING]: {
     showDistance: true,

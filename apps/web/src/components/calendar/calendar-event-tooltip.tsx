@@ -15,6 +15,7 @@ import {
   formatDistance,
   formatDuration,
   formatSpeed,
+  formatSpeedUnit,
   getSportConfig,
 } from '@openathlete/shared';
 
@@ -94,7 +95,7 @@ function ActivityTooltipContent({ event }: { event: ActivityEvent }) {
             </span>
             <span className="font-medium">
               {formatSpeed(event.averageSpeed, sportConfig.speedUnit)}{' '}
-              {sportConfig.speedUnit}
+              {formatSpeedUnit(sportConfig.speedUnit)}
             </span>
           </div>
         )}

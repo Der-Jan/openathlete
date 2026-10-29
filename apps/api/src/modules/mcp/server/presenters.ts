@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
 import { Prisma } from '@openathlete/database';
-import { SPORT_TYPE, getSportConfig } from '@openathlete/shared';
+import {
+  SPORT_TYPE,
+  getSportConfig,
+  paceDistanceMeters,
+} from '@openathlete/shared';
 
 import { formatZoned, zonedClock } from 'src/common/utils/time-zone';
 
@@ -147,11 +151,11 @@ export function speedFields(sport: string, metersPerSecond: number) {
   if (!metersPerSecond || metersPerSecond <= 0) return {};
   const config = getSportConfig(sport as SPORT_TYPE);
   if (config?.speedLabel === 'pace') {
-    // Swimmers count per 100 m
-    const per100m = sport === SPORT_TYPE.SWIMMING;
-    const seconds = Math.round((per100m ? 100 : 1000) / metersPerSecond);
+    // Swimmers count per 100 m, rowers per 500 m
+    const meters = paceDistanceMeters(config.speedUnit);
+    const seconds = Math.round(meters / metersPerSecond);
     return {
-      avgPace: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}/${per100m ? '100m' : 'km'}`,
+      avgPace: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}/${meters === 1000 ? 'km' : `${meters}m`}`,
     };
   }
   return { avgSpeedKmh: round(metersPerSecond * 3.6, 1) };
