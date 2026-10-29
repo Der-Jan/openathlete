@@ -1,8 +1,8 @@
 import { m } from '@/paraglide/messages';
 
 import { formatDistance } from '@openathlete/shared';
+import { Climb } from '@openathlete/shared';
 
-import { Climb } from '../activity-analysis/detection';
 import { xSeries } from '../activity-analysis/stream-range';
 import { Map, MapHighlight } from '../map/map';
 import { useActivityDetailsSelection } from './activity-details-selection-context';

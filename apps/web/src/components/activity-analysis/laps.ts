@@ -11,8 +11,8 @@ import {
   WorkoutStepTarget,
   getTargetIntensity,
 } from '@openathlete/shared';
+import { Climb, detectClimbs, detectIntervals } from '@openathlete/shared';
 
-import { Climb, detectClimbs, detectIntervals } from './detection';
 import { RangeStats, computeRangeStats, indexRange } from './stream-range';
 import { buildChartRows } from './tracks';
 

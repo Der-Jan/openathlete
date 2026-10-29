@@ -38,3 +38,5 @@ export {
   defaultMetricForTarget,
 } from './target-metric.map';
 export { getTargetIntensity, DEFAULT_METRIC_VALUES } from './target-intensity';
+export * from './activity-decoupling';
+export * from './activity-detection';

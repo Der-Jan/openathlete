@@ -9,14 +9,14 @@ import {
   formatSpeedUnit,
   getSportConfig,
 } from '@openathlete/shared';
-
-import { useActivityDetailsSelection } from '../event-details/activity-details-selection-context';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
   MIN_DECOUPLING_SECONDS,
   aerobicDecoupling,
   decouplingLevel,
-} from './decoupling';
+} from '@openathlete/shared';
+
+import { useActivityDetailsSelection } from '../event-details/activity-details-selection-context';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { indexRange, xSeries } from './stream-range';
 import { buildChartRows } from './tracks';
 

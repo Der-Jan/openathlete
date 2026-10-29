@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectClimbs, detectIntervals } from './detection';
+import { detectClimbs, detectIntervals } from '@openathlete/shared';
 
 const range = <T>(n: number, f: (i: number) => T): T[] =>
   Array.from({ length: n }, (_, i) => f(i));
