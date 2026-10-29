@@ -128,5 +128,9 @@ test('reads an activity against its plan, step by step and part by part', async 
     page.locator('[data-activity-streams-chart] [data-track="altitude"]'),
   ).toHaveCount(0);
 
+  // What the conditions cost, on their own tab
+  await page.getByRole('tab', { name: 'Conditions' }).click();
+  await expect(page.locator('[data-normalization]')).toBeVisible();
+
   expect(problems).toEqual([]);
 });

@@ -1,5 +1,9 @@
 import { useGetMyAthleteQuery } from '@/api/athlete';
-import { useGetEventStreamQuery, useGetEventWeatherQuery } from '@/api/event';
+import {
+  useGetEventNormalizationQuery,
+  useGetEventStreamQuery,
+  useGetEventWeatherQuery,
+} from '@/api/event';
 import { m } from '@/paraglide/messages';
 import { useState } from 'react';
 
@@ -7,6 +11,7 @@ import { ActivityEvent } from '@openathlete/shared';
 
 import { ActivityFeedbackOverlay } from '../activity-feedback/activity-feedback-overlay';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { ActivityNormalizationCard } from './activity-normalization-card';
 import { ActivityDetailsOverviewTab } from './tabs/activity-details-overview-tab';
 import { ActivityDetailsWeatherTab } from './tabs/activity-details-weather-tab';
 
@@ -35,6 +40,9 @@ export function ActivityDetails({ event }: P) {
   const { data: weather } = useGetEventWeatherQuery(event.eventId, {
     retry: 1,
   });
+  const { data: normalization } = useGetEventNormalizationQuery(event.eventId);
+  // What slowed the athlete down, or helped: weather and normalisation
+  const hasConditions = !!weather || !!normalization?.factors.length;
 
   return (
     <>
@@ -49,12 +57,14 @@ export function ActivityDetails({ event }: P) {
 
       {!(isMyActivity && feedbackMode) && (
         <Tabs defaultValue="overview" className="flex flex-col gap-4">
-          <TabsList>
-            <TabsTrigger value="overview">{m.overview()}</TabsTrigger>
-            {weather && (
-              <TabsTrigger value="weather">{m.weather()}</TabsTrigger>
-            )}
-          </TabsList>
+          {hasConditions && (
+            <TabsList>
+              <TabsTrigger value="overview">{m.overview()}</TabsTrigger>
+              <TabsTrigger value="conditions">
+                {m.activity_conditions()}
+              </TabsTrigger>
+            </TabsList>
+          )}
           <TabsContent value="overview">
             <ActivityDetailsOverviewTab
               event={event}
@@ -65,9 +75,12 @@ export function ActivityDetails({ event }: P) {
               onReopenFeedback={() => setFeedbackMode('edit')}
             />
           </TabsContent>
-          {weather && (
-            <TabsContent value="weather">
-              <ActivityDetailsWeatherTab data={weather} stream={stream} />
+          {hasConditions && (
+            <TabsContent value="conditions" className="space-y-4">
+              <ActivityNormalizationCard event={event} />
+              {weather && (
+                <ActivityDetailsWeatherTab data={weather} stream={stream} />
+              )}
             </TabsContent>
           )}
         </Tabs>

@@ -11,9 +11,14 @@ const me = vi.hoisted(() => ({ athleteId: 1 }));
 vi.mock('@/api/athlete', () => ({
   useGetMyAthleteQuery: () => ({ data: { athleteId: me.athleteId } }),
 }));
+const conditions = vi.hoisted(() => ({ weather: undefined as unknown }));
 vi.mock('@/api/event', () => ({
   useGetEventStreamQuery: () => ({ data: undefined }),
-  useGetEventWeatherQuery: () => ({ data: undefined }),
+  useGetEventWeatherQuery: () => ({ data: conditions.weather }),
+  useGetEventNormalizationQuery: () => ({ data: undefined }),
+}));
+vi.mock('./tabs/activity-details-weather-tab', () => ({
+  ActivityDetailsWeatherTab: () => <div data-weather />,
 }));
 // Every message renders as its key
 vi.mock('@/paraglide/messages', () => ({
@@ -59,6 +64,7 @@ describe('ActivityDetails', () => {
 
   beforeEach(() => {
     me.athleteId = 1;
+    conditions.weather = undefined;
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -86,6 +92,19 @@ describe('ActivityDetails', () => {
     act(() => stubs.overlay.onSkip());
     expect(flow()).toBeNull();
     expect(overview()).not.toBeNull();
+  });
+
+  it('has no tabs to pick from without conditions', () => {
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+  });
+
+  it('puts the weather in a conditions tab', () => {
+    conditions.weather = { samples: [] };
+    act(() => root.render(<ActivityDetails event={{ ...event }} />));
+    const tabs = [...container.querySelectorAll('[role="tab"]')].map(
+      (tab) => tab.textContent,
+    );
+    expect(tabs).toEqual(['overview', 'activity_conditions']);
   });
 
   it('edits the answers already given', () => {

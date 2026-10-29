@@ -20,6 +20,13 @@ test('an activity page fits a phone', async ({ page, request }) => {
   ).toBeVisible();
   await page.waitForLoadState('networkidle');
 
+  // Jump links take a phone straight to a section
+  await page
+    .locator('[data-activity-sections]')
+    .getByRole('button', { name: 'Charts' })
+    .click();
+  await expect(page.locator('[data-activity-streams-chart]')).toBeInViewport();
+
   const overflows = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );

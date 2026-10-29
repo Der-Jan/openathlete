@@ -5,9 +5,15 @@ import { useMemo, useState } from 'react';
 import { ActivityEvent, ActivityStream } from '@openathlete/shared';
 
 import { ActivityStreamsChart } from '../../activity-analysis/activity-streams-chart';
+import { availableLapSources } from '../../activity-analysis/laps';
 import { LapsCard } from '../../activity-analysis/laps-card';
 import { useLapOptions } from '../../activity-analysis/laps-options';
 import { PlanBanner } from '../../activity-analysis/plan-banner';
+import {
+  ActivitySection,
+  ActivitySectionNav,
+  SectionAnchor,
+} from '../../activity-analysis/section-nav';
 import {
   XAxisKind,
   defaultXAxis,
@@ -20,7 +26,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
 import { ActivityDetailsMap } from '../activity-details-map';
 import { ActivityDetailsSelectionProvider } from '../activity-details-selection-context';
 import { ActivityFeedbackDisplayCard } from '../activity-feedback-display-card';
-import { ActivityNormalizationCard } from '../activity-normalization-card';
 import { ActivityQuickEditCard } from '../activity-quick-edit-card';
 import { ActivityStatistics } from '../activity-statistics';
 
@@ -76,15 +81,30 @@ export function ActivityDetailsOverviewTab({
     <ActivityFeedbackDisplayCard event={event} />
   );
 
+  const hasLaps = useMemo(
+    () => availableLapSources(lapOptions).length > 0,
+    [lapOptions],
+  );
+  const id = (section: string) => `activity-${event.eventId}-${section}`;
+  const sections: ActivitySection[] = [
+    { id: id('summary'), label: m.activity_section_summary() },
+    ...(stream ? [{ id: id('charts'), label: m.activity_charts_title() }] : []),
+    ...(hasLaps ? [{ id: id('laps'), label: m.activity_laps_title() }] : []),
+    { id: id('notes'), label: m.activity_section_notes() },
+    { id: `event-comments-${event.eventId}`, label: m.event_comments_title() },
+  ];
+
   const content = (
     <>
+      <ActivitySectionNav sections={sections} />
       <PlanBanner event={event} options={lapOptions} />
-      <Card className="col-span-2 sm:col-span-1">
+      <SectionAnchor id={id('summary')} />
+      <Card className={hasMap ? 'col-span-2 sm:col-span-1' : 'col-span-2'}>
         <CardHeader>
           <CardTitle>{m.statistics()}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-4">
             <ActivityStatistics event={event} stream={stream} />
           </div>
         </CardContent>
@@ -98,25 +118,29 @@ export function ActivityDetailsOverviewTab({
           time={stream.time}
         />
       )}
-      {feedbackCard}
-      {stream && <ZonesCard event={event} stream={stream} />}
       {stream && (
-        <ActivityStreamsChart
-          stream={stream}
-          sport={event.sport}
-          athleteId={event.athleteId ?? undefined}
-          laps={laps}
-          onHover={setHover}
-        />
+        <>
+          <SectionAnchor id={id('charts')} />
+          <ActivityStreamsChart
+            stream={stream}
+            sport={event.sport}
+            athleteId={event.athleteId ?? undefined}
+            laps={laps}
+            onHover={setHover}
+          />
+        </>
       )}
+      {hasLaps && <SectionAnchor id={id('laps')} />}
       <LapsCard event={event} options={lapOptions} />
+      <SectionAnchor id={id('notes')} />
+      {stream && <ZonesCard event={event} stream={stream} />}
+      {feedbackCard}
       {!!event.records?.length && (
         <ActivityRecordsCharts
           records={event.records as ChartRecord[]}
           sport={event.sport}
         />
       )}
-      <ActivityNormalizationCard event={event} />
     </>
   );
 

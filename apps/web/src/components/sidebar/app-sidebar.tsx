@@ -6,6 +6,7 @@ import { CollapsedAthleteMenu } from '@/components/sidebar/collapsed-athlete-men
 import { NavMain } from '@/components/sidebar/nav-main';
 import { NavUser } from '@/components/sidebar/nav-user';
 import { SpaceSwitcher } from '@/components/sidebar/space-switcher';
+import { SupportReminder } from '@/components/sidebar/support-reminder';
 import { Button } from '@/components/ui/button';
 import {
   Sidebar,
@@ -210,6 +211,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         )}
       </SidebarContent>
       <SidebarFooter>
+        <SupportReminder />
         {isMobile ? <MobileAccountControls /> : <NavUser />}
       </SidebarFooter>
       <SidebarRail />

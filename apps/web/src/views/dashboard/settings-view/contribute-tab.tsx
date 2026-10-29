@@ -1,3 +1,4 @@
+import { useCurrentSubscription } from '@/api/subscription';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -8,24 +9,31 @@ import {
 } from '@/components/ui/card';
 import { m } from '@/paraglide/messages';
 import { purchaseChannel } from '@/utils/capacitor';
-import { ExternalLink, Github, HeartHandshake } from 'lucide-react';
+import { BUY_ME_A_COFFEE_URL } from '@/utils/support-reminder';
+import { Coffee, ExternalLink, Github } from 'lucide-react';
 
 import { SettingsSection } from './settings-section';
 
-const PATREON_URL = 'https://www.patreon.com/OpenAthlete';
 const GITHUB_REPO_URL = 'https://github.com/openathleteorg/openathlete';
 
 export function ContributeTab() {
   // Store rules: donations outside the app's own in-app purchase are refused
   // in the iOS app, and the Android app points to no payment
   const hideFinancialSupport = purchaseChannel() !== 'stripe';
+  // The hosted instance asks for support through Supporter: the coffee is
+  // only a footnote there, and the main ask on self-hosted instances
+  const { data: subscription } = useCurrentSubscription();
+  const coffeeAsCard =
+    !hideFinancialSupport && subscription?.billingEnabled === false;
+  const coffeeAsLink =
+    !hideFinancialSupport && subscription?.billingEnabled === true;
 
   return (
     <div className="space-y-6">
       <SettingsSection
         title={m.contribute()}
         description={
-          hideFinancialSupport
+          !coffeeAsCard
             ? m.contribute_tab_description_ios()
             : m.contribute_tab_description()
         }
@@ -33,14 +41,14 @@ export function ContributeTab() {
       >
         <div
           className={
-            hideFinancialSupport ? 'grid gap-4' : 'grid gap-4 md:grid-cols-2'
+            coffeeAsCard ? 'grid gap-4 md:grid-cols-2' : 'grid gap-4'
           }
         >
-          {!hideFinancialSupport && (
+          {coffeeAsCard && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <HeartHandshake className="h-4 w-4" />
+                  <Coffee className="h-4 w-4" />
                   {m.support_the_project()}
                 </CardTitle>
                 <CardDescription>
@@ -49,8 +57,12 @@ export function ContributeTab() {
               </CardHeader>
               <CardContent>
                 <Button asChild>
-                  <a href={PATREON_URL} target="_blank" rel="noreferrer">
-                    {m.open_patreon()} <ExternalLink className="h-4 w-4" />
+                  <a
+                    href={BUY_ME_A_COFFEE_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {m.buy_me_a_coffee()} <ExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
               </CardContent>
@@ -76,6 +88,20 @@ export function ContributeTab() {
             </CardContent>
           </Card>
         </div>
+
+        {coffeeAsLink && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            {m.contribute_coffee_prompt()}{' '}
+            <a
+              href={BUY_ME_A_COFFEE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 underline hover:text-foreground"
+            >
+              {m.buy_me_a_coffee()} <ExternalLink className="h-3 w-3" />
+            </a>
+          </p>
+        )}
       </SettingsSection>
     </div>
   );
