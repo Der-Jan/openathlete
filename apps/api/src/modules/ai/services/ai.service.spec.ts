@@ -81,7 +81,17 @@ describe('AiService', () => {
     generate.mockResolvedValue({ object: { value: 3 } });
 
     await expect(
-      service.generateObject(agent, ownKeyModel, 'Count', schema),
+      service.generateObject(
+        agent,
+        {
+          ...ownKeyModel,
+          provider: 'openai',
+          modelId: 'gpt-5.1',
+          config: { id: 'openai/gpt-5.1', apiKey: 'sk-user' },
+        },
+        'Count',
+        schema,
+      ),
     ).resolves.toEqual({ value: 3 });
     expect(generate).toHaveBeenCalledWith(
       'Count',
@@ -89,6 +99,20 @@ describe('AiService', () => {
         structuredOutput: { schema, jsonPromptInjection: 'auto' },
         providerOptions: { openai: { strictJsonSchema: false } },
         abortSignal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("puts the schema in Claude's prompt, as its JSON output refuses recursion", async () => {
+    const { service } = setup();
+    const schema = z.object({ value: z.number() });
+    generate.mockResolvedValue({ object: { value: 3 } });
+
+    await service.generateObject(agent, ownKeyModel, 'Count', schema);
+    expect(generate).toHaveBeenCalledWith(
+      'Count',
+      expect.objectContaining({
+        structuredOutput: { schema, jsonPromptInjection: true },
       }),
     );
   });
