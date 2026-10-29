@@ -28,9 +28,6 @@ vi.mock('@/components/sidebar/nav-user', () => ({ NavUser: () => null }));
 vi.mock('@/components/sidebar/space-switcher', () => ({
   SpaceSwitcher: () => null,
 }));
-vi.mock('@/components/sidebar/support-reminder', () => ({
-  SupportReminder: () => null,
-}));
 vi.mock('@/components/mobile/mobile-account-controls', () => ({
   MobileAccountControls: () => null,
 }));
