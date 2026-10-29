@@ -19,6 +19,18 @@ import { SendEmailEvent } from 'src/events';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 import { FeatureAccessService } from 'src/modules/subscription';
 
+/**
+ * Whether the invitation is for this coach. One sent before the coach had
+ * an account has no coachUserId: it names them by email until they answer.
+ */
+const isFor = (
+  invitation: { coachUserId: number | null; email: string },
+  coach: { userId: number; email: string },
+) =>
+  invitation.coachUserId === coach.userId ||
+  (invitation.coachUserId === null &&
+    invitation.email.toLowerCase() === coach.email.toLowerCase());
+
 @Injectable()
 export class CoachInvitationService {
   constructor(
@@ -275,6 +287,15 @@ export class CoachInvitationService {
     });
   }
 
+  private async coach(coachUserId: number) {
+    const coach = await this.prisma.user.findUnique({
+      where: { userId: coachUserId },
+      select: { userId: true, email: true },
+    });
+    if (!coach) throw new NotFoundException('User not found');
+    return coach;
+  }
+
   async acceptInvitation(coachUserId: number, invitationId: number) {
     const invitation = await this.prisma.coachInvitation.findUnique({
       where: { coachInvitationId: invitationId },
@@ -284,7 +305,7 @@ export class CoachInvitationService {
       throw new NotFoundException('Invitation not found');
     }
 
-    if (invitation.coachUserId !== coachUserId) {
+    if (!isFor(invitation, await this.coach(coachUserId))) {
       throw new BadRequestException('This invitation is not for you');
     }
 
@@ -310,22 +331,24 @@ export class CoachInvitationService {
       );
     }
 
-    // Create coach-athlete link
-    await this.prisma.coachAthlete.create({
-      data: {
-        athleteId: athlete.athleteId,
-        userId: coachUserId,
-      },
-    });
-
-    // Update invitation status to ACCEPTED
-    await this.prisma.coachInvitation.update({
-      where: {
-        coachInvitationId: invitation.coachInvitationId,
-      },
-      data: {
-        status: InvitationStatus.ACCEPTED,
-      },
+    // Accept and link together: a double click links the coach once
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.coachInvitation.updateMany({
+        where: {
+          coachInvitationId: invitation.coachInvitationId,
+          status: InvitationStatus.PENDING,
+        },
+        data: { status: InvitationStatus.ACCEPTED, coachUserId },
+      });
+      if (claimed.count !== 1) {
+        throw new BadRequestException('This invitation is no longer pending');
+      }
+      await tx.coachAthlete.create({
+        data: {
+          athleteId: athlete.athleteId,
+          userId: coachUserId,
+        },
+      });
     });
   }
 
@@ -338,7 +361,7 @@ export class CoachInvitationService {
       throw new NotFoundException('Invitation not found');
     }
 
-    if (invitation.coachUserId !== coachUserId) {
+    if (!isFor(invitation, await this.coach(coachUserId))) {
       throw new BadRequestException('This invitation is not for you');
     }
 
@@ -353,15 +376,20 @@ export class CoachInvitationService {
       },
       data: {
         status: InvitationStatus.REJECTED,
+        coachUserId,
       },
     });
   }
 
   async getPendingInvitationsForCoach(coachUserId: number) {
+    const coach = await this.coach(coachUserId);
     return await this.prisma.coachInvitation.findMany({
       where: {
-        coachUserId: coachUserId,
         status: InvitationStatus.PENDING,
+        OR: [
+          { coachUserId },
+          { coachUserId: null, email: coach.email.toLowerCase() },
+        ],
       },
       include: {
         athleteUser: {

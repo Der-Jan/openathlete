@@ -147,6 +147,74 @@ describe('invitation links (PostgreSQL)', () => {
       }),
     ).toBe(1);
   });
+
+  // Invited by email, then signed up from the app stores without the link
+  describe('an invitation sent before the account existed', () => {
+    it('is offered to the athlete, who accepts it once', async () => {
+      const { athleteInvitationId } = await prisma.athleteInvitation.create({
+        data: {
+          email: 'store@example.com',
+          userId: COACH_USER_ID,
+          token: 'unused-link',
+        },
+      });
+      const athleteUserId = await signUp('Store@Example.com');
+
+      const pending =
+        await athleteInvitations.getPendingInvitationsForAthlete(athleteUserId);
+      expect(pending.map((i) => i.athleteInvitationId)).toEqual([
+        athleteInvitationId,
+      ]);
+
+      const results = await Promise.allSettled([
+        athleteInvitations.acceptInvitation(athleteUserId, athleteInvitationId),
+        athleteInvitations.acceptInvitation(athleteUserId, athleteInvitationId),
+      ]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      expect(
+        await prisma.coachAthlete.count({
+          where: { userId: COACH_USER_ID, athlete: { userId: athleteUserId } },
+        }),
+      ).toBe(1);
+      expect(
+        await athleteInvitations.getPendingInvitationsForAthlete(athleteUserId),
+      ).toEqual([]);
+    });
+
+    it('is offered to the coach it names by email, and to nobody else', async () => {
+      const { coachInvitationId } = await prisma.coachInvitation.create({
+        data: {
+          email: 'store-coach@example.com',
+          athleteUserId: DELETED_USER_ID,
+          token: 'unused-coach-link',
+        },
+      });
+      const coachUserId = await signUp('store-coach@example.com');
+      const stranger = await signUp('stranger@example.com');
+
+      expect(
+        await coachInvitations.getPendingInvitationsForCoach(stranger),
+      ).toEqual([]);
+      await expect(
+        coachInvitations.acceptInvitation(stranger, coachInvitationId),
+      ).rejects.toThrow('This invitation is not for you');
+
+      const pending =
+        await coachInvitations.getPendingInvitationsForCoach(coachUserId);
+      expect(pending.map((i) => i.coachInvitationId)).toEqual([
+        coachInvitationId,
+      ]);
+      await coachInvitations.acceptInvitation(coachUserId, coachInvitationId);
+      expect(
+        (await coachesOf(DELETED_ATHLETE_ID)).map((link) => link.userId),
+      ).toContain(coachUserId);
+      expect(
+        await prisma.coachInvitation.findUnique({
+          where: { coachInvitationId },
+        }),
+      ).toMatchObject({ status: 'ACCEPTED', coachUserId });
+    });
+  });
 });
 
 describe("an athlete's coaches (PostgreSQL)", () => {
