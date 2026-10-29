@@ -78,9 +78,9 @@ export class AiService {
   }
 
   /**
-   * Generates a value matching the schema. Models without native JSON output
-   * get the schema in the prompt instead; OpenAI's strict mode stays off as it
-   * rejects recursive schemas (workout repeat blocks).
+   * Generates a value matching the schema. Models without native JSON output,
+   * and Claude, get the schema in the prompt instead; OpenAI's strict mode
+   * stays off as it rejects recursive schemas (workout repeat blocks).
    */
   async generateObject<S extends z.ZodTypeAny>(
     agent: AgentSpec,
@@ -91,7 +91,13 @@ export class AiService {
     const result = await this.run(model, () =>
       this.createAgent(agent, model.config).generate(prompt, {
         ...callSettings(),
-        structuredOutput: { schema, jsonPromptInjection: 'auto' },
+        structuredOutput: {
+          schema,
+          // Claude's native JSON output refuses recursive schemas (workout
+          // repeat blocks): the schema goes in the prompt and the answer is
+          // validated against it here
+          jsonPromptInjection: model.provider === 'anthropic' ? true : 'auto',
+        },
         providerOptions: {
           openai: { strictJsonSchema: false },
           ...anthropicOptions(model),

@@ -187,10 +187,10 @@ test("Anthropic runs on the user's key", async () => {
   assert.equal(event.workout.steps[0].durationValue, 3600);
 });
 
-test('hosted Claude 5.x answers in native JSON at the effort of the feature', async () => {
+test('hosted Claude 5.x gets the workout schema in the prompt, at the effort of the feature', async () => {
   providersAnswer(JSON.stringify(generatedEvent));
 
-  await ai.generateObject(
+  const event = await ai.generateObject(
     eventGenerationAgent,
     {
       ...model({ id: 'anthropic/claude-sonnet-5-5' }, 'hosted'),
@@ -204,9 +204,13 @@ test('hosted Claude 5.x answers in native JSON at the effort of the feature', as
   const [request] = requests;
   assert.equal(request.headers.get('x-api-key'), 'sk-instance-anthropic');
   assert.equal(request.body.output_config.effort, 'medium');
-  assert.equal(request.body.output_config.format.type, 'json_schema');
+  // Claude's native JSON output refuses recursive schemas (repeat blocks)
+  assert.equal(request.body.output_config.format, undefined);
+  assert.match(JSON.stringify(request.body), /durationValue/);
   // Forced tool use is refused by Claude 5.5 models
   assert.equal(request.body.tool_choice, undefined);
+  assert.equal(request.body.tools, undefined);
+  assert.equal(event.workout.steps[0].durationValue, 3600);
   assert.equal(request.body.temperature, undefined);
 });
 
