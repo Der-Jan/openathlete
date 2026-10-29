@@ -101,7 +101,7 @@ describe('GarminProviderService.processNotification', () => {
 
   beforeEach(() => mockedGet.mockReset());
 
-  it('pulls the callback with its own token, so Garmin ties it to the ping', async () => {
+  it('pulls the callback as Garmin built it, with the access token', async () => {
     const { service, prisma } = setup([account]);
     mockedGet.mockResolvedValue({
       data: [{ summaryId: 'd', calendarDate: '2026-10-27', steps: 1000 }],
@@ -121,8 +121,32 @@ describe('GarminProviderService.processNotification', () => {
     expect(mockedGet).toHaveBeenCalledTimes(1);
     const [url, options] = mockedGet.mock.calls[0];
     expect(url).toContain('token=abc');
-    expect(options.headers).toEqual({});
+    expect(options.headers).toEqual({ Authorization: 'Bearer access' });
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('fails the job when Garmin refuses the pull, instead of dropping the data', async () => {
+    const { service, prisma } = setup([account]);
+    mockedGet.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 400'), {
+        isAxiosError: true,
+        response: { status: 400, data: { errorMessage: 'bad request' } },
+      }),
+    );
+
+    await expect(
+      service.processNotification(
+        {
+          summaryType: 'activities',
+          userId: 'u1',
+          callbackURL:
+            'https://apis.garmin.com/wellness-api/rest/activities?token=abc',
+          entry: {},
+        },
+        { lastAttempt: false },
+      ),
+    ).rejects.toThrow('status code 400');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('answers pings of unknown users without saving anything', async () => {

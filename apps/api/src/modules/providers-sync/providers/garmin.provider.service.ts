@@ -119,6 +119,22 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Garmin explains its 4xx in { errorMessage } */
+function garminErrorMessage(error: unknown): string {
+  if (!isAxiosError(error)) return String(error);
+  const data: unknown = error.response?.data;
+  if (isObject(data) && typeof data.errorMessage === 'string') {
+    return data.errorMessage;
+  }
+  // Activity files are requested as binary, so is their error body
+  if (data instanceof ArrayBuffer || Buffer.isBuffer(data)) {
+    return Buffer.from(data as ArrayBuffer)
+      .toString('utf8')
+      .slice(0, 300);
+  }
+  return error.message;
+}
+
 export function parseGarminPermissions(
   scopes?: string | null,
 ): string[] | null {
@@ -759,11 +775,10 @@ export class GarminProviderService
   }
 
   /**
-   * Pulls a callback URL as Garmin built it. Its `token` parameter
-   * authorizes the pull and ties it to the ping: a pull authorized with the
-   * user's access token instead counts as unprompted, and the ping as
-   * unanswered. The access token is only a fallback when the pull token is
-   * missing or refused.
+   * Pulls a callback URL as Garmin built it, `token` parameter included,
+   * authorized with the user's access token: Garmin answers 400 to a pull
+   * carrying the pull token alone. Without an account (a user unknown
+   * here), the pull token is all there is to answer the ping with.
    */
   private async pullCallback<T>(
     callbackURL: string,
@@ -771,27 +786,15 @@ export class GarminProviderService
     responseType: 'json' | 'arraybuffer',
   ): Promise<T> {
     const url = this.getSafeGarminCallbackUrl(callbackURL);
-    const request = (headers: Record<string, string>) =>
-      axios.get<T>(url, {
-        headers,
-        responseType,
-        timeout: responseType === 'arraybuffer' ? 120_000 : 45_000,
-      });
-
-    if (new URL(url).searchParams.has('token') || !account) {
-      try {
-        return (await request({})).data;
-      } catch (error) {
-        const status = isAxiosError(error) ? error.response?.status : undefined;
-        if (!account || (status !== 401 && status !== 403)) throw error;
-        this.logger.warn(
-          `Garmin refused the pull token of a callback (${status}); retrying with the access token of account ${account.providerAccountId}`,
-        );
-      }
-    }
-
-    const accessToken = await this.getValidAccessToken(account);
-    return (await request({ Authorization: `Bearer ${accessToken}` })).data;
+    const headers: Record<string, string> = account
+      ? { Authorization: `Bearer ${await this.getValidAccessToken(account)}` }
+      : {};
+    const { data } = await axios.get<T>(url, {
+      headers,
+      responseType,
+      timeout: responseType === 'arraybuffer' ? 120_000 : 45_000,
+    });
+    return data;
   }
 
   private async pullSummaries(
@@ -809,11 +812,15 @@ export class GarminProviderService
       return isObject(data) ? [data] : [];
     } catch (error) {
       const status = isAxiosError(error) ? error.response?.status : undefined;
-      // 4xx won't change on retry: the summary type is not shared (412), the
-      // user is gone (403), the data expired (410)...
+      // A refused request (400, 401) is a fault on our side: the job fails
+      // loudly and retries while the callback lasts (7 days), instead of
+      // dropping the data unseen
+      if (account && (status === 400 || status === 401)) throw error;
+      // Other 4xx won't change on retry: the summary type is not shared
+      // (412), the user is gone (403), the data expired (410)...
       if (status && status >= 400 && status < 500 && status !== 429) {
         this.logger.warn(
-          `Garmin ${summaryType} callback answered ${status}${account ? ` for account ${account.providerAccountId}` : ''}`,
+          `Garmin ${summaryType} callback answered ${status}${account ? ` for account ${account.providerAccountId}` : ''}: ${garminErrorMessage(error)}`,
         );
         return [];
       }
@@ -988,7 +995,7 @@ export class GarminProviderService
       const status = isAxiosError(error) ? error.response?.status : undefined;
       if (status === 410 || status === 404 || status === 412) {
         this.logger.warn(
-          `Garmin activity file ${activityId ?? ''} answered ${status}; skipped`,
+          `Garmin activity file ${activityId ?? ''} answered ${status}: ${garminErrorMessage(error)}`,
         );
         return;
       }
