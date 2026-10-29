@@ -64,10 +64,14 @@ function Consent({ request }: { request: OAuthAuthorizeRequest }) {
     }
   };
 
+  const agent =
+    details.scopes.includes('read') || details.scopes.includes('write');
   const permissions = [
     details.scopes.includes('read') && m.oauth_consent_read(),
     details.scopes.includes('write') && m.oauth_consent_write(),
-    coached.length > 0 && m.oauth_consent_coach(),
+    // Files only ever go to the user's own calendar
+    details.scopes.includes('activities:import') && m.oauth_consent_import(),
+    agent && coached.length > 0 && m.oauth_consent_coach(),
   ].filter((item) => typeof item === 'string');
   const busy = decide.isPending || leaving;
 

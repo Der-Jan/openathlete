@@ -41,7 +41,8 @@ test('makes no third-party request', async ({ page }) => {
 });
 
 // A bare instance has no Google sign-in, email or device connector: the app
-// must not offer what would only fail
+// must not offer what would only fail. Single sign-on is the E2E stack's
+// fake-oidc provider.
 test('hides what the instance has not set up', async ({ page, request }) => {
   const instance = await request.get(`${API_URL}/instance`);
   expect(await instance.json()).toEqual({
@@ -49,6 +50,7 @@ test('hides what the instance has not set up', async ({ page, request }) => {
     email: false,
     providers: [],
     signup: 'open',
+    oidc: { name: 'Fake IdP' },
   });
 
   await page.goto('/dashboard/settings?tab=connectors');

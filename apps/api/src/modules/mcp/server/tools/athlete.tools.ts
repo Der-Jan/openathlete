@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { SportType, TrainingLoadCalculationType } from '@openathlete/database';
-import { metricUnitMap } from '@openathlete/shared';
+import { cycleColorName, metricUnitMap } from '@openathlete/shared';
 
 import {
   addDaysToDateKey,
@@ -115,6 +115,7 @@ const contextOutput = z.object({
         kind: z.enum(['training', 'travel', 'illness', 'injury']),
         startDate: z.string(),
         endDate: z.string(),
+        color: z.string().describe('Palette name, or hex when set outside it'),
         description: z.string().optional(),
       }),
     )
@@ -344,6 +345,7 @@ export const registerAthleteTools: ToolRegistrar = (server, ctx, deps) => {
               'training' | 'travel' | 'illness' | 'injury',
             startDate: localDay(period.startDate),
             endDate: localDay(period.endDate),
+            color: cycleColorName(period.color),
             ...(period.description && { description: period.description }),
           })),
           injuries: injuries.map((injury) => ({

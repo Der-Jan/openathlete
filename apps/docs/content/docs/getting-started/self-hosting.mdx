@@ -61,7 +61,9 @@ Leave a variable empty to disable the feature:
 | Transactional email (password reset, invitations) | `SMTP_*` and `EMAIL_FROM`, or `BREVO_API_KEY` (see below)  |
 | An email to you for each new account              | `SIGNUP_NOTIFICATION_EMAIL` (needs email)                  |
 | Device sync                                       | `STRAVA_*`, `GARMIN_*`, `POLAR_*`, `SUUNTO_*`              |
-| AI load estimation of planned sessions            | `ENABLE_TRAINING_LOAD_ESTIMATION`                          |
+| Single sign-on (OpenID Connect)                   | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_NAME` (see below) |
+| AI load estimation fallback for planned sessions  | `ENABLE_TRAINING_LOAD_ESTIMATION`                          |
+| Garmin Personal API (self-hosted personal use only) | `GARMIN_PERSONAL_API_ENABLED=true` (default: off) |
 | Billing                                           | `STRIPE_*` (not needed for self-hosting)                   |
 
 #### Email
@@ -88,9 +90,12 @@ Every API variable is documented in `apps/api/.env.example`.
 ### Device sync
 
 The OAuth connectors below need an app registered in their developer program.
-[Garmin Personal API](/docs/guides/garmin-personal-api) is also available: each athlete
-can supply their own personal key in Settings > Connectors, without shared Garmin
-business credentials. Users can always import FIT and GPX files instead (Settings > Connectors).
+[Garmin Personal API](/docs/guides/garmin-personal-api) is a **self-hosted personal-use
+option, off by default**. Set `GARMIN_PERSONAL_API_ENABLED=true` to enable it.
+Personal keys access the key owner's own data; they are not for instances serving
+other people. The hosted OpenAthlete service must leave this option disabled.
+Activity imports require their own consent and an enabled import worker.
+Users can always import FIT and GPX files instead (Settings > Connectors).
 
 | Provider | Developer program                                                                                                                       | Callback URL to declare           |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
@@ -99,7 +104,7 @@ business credentials. Users can always import FIT and GPX files instead (Setting
 | Garmin   | [Garmin Connect Developer Program](https://developer.garmin.com/gc-developer-program/), business approval required                      | `APP_URL/auth/callback/garmin`    |
 | Suunto   | [Suunto API Zone](https://apizone.suunto.com), partner approval required                                                                | `APP_URL/auth/callback/suunto`    |
 
-Set the client ID and secret in `.env` (`STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`...); Suunto also needs `SUUNTO_SUBSCRIPTION_KEY`. A provider appears in the app once all its settings are present. Callback URLs default to `APP_URL/auth/callback/<provider>` and webhooks to `APP_URL/api/provider/<provider>/webhook`; the `*_REDIRECT_URI` and `POLAR_WEBHOOK_URL` variables override them.
+Set the client ID and secret in `.env` (`STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`...); Suunto also needs `SUUNTO_SUBSCRIPTION_KEY`, and `SUUNTO_WEBHOOK_SECRET` (the notification secret of your Suunto app) to verify its webhooks. A provider appears in the app once all its settings are present. Callback URLs default to `APP_URL/auth/callback/<provider>` and webhooks to `APP_URL/api/provider/<provider>/webhook`; the `*_REDIRECT_URI` and `POLAR_WEBHOOK_URL` variables override them.
 
 For Garmin, open the [endpoint configuration](https://apis.garmin.com/tools/endpoints) and point every summary type you enable to `APP_URL/api/provider/garmin/webhook`, as **Ping** notifications. Enable at least `Deregistration` and `User Permissions` (Garmin requires them), `Activities` and `Activity Files`, and the health summaries you want (`Dailies`, `Sleeps`, `HRV`...). The worker pulls each notification once, even for users who turned import off, as Garmin counts unanswered notifications against the app.
 
@@ -115,7 +120,9 @@ AI features (workout generation and editing, post-activity questions, feedback a
 
   ```properties
   ANTHROPIC_API_KEY=sk-ant-...
-  AI_MODEL_DEFAULT=anthropic/claude-sonnet-4-5   # every feature on one provider
+  AI_MODEL_DEFAULT=anthropic/claude-haiku-5-5            # every feature on one provider
+  AI_MODEL_EVENT_GENERATION=anthropic/claude-sonnet-5-5  # a stronger model for workouts
+  AI_MODEL_EVENT_MODIFICATION=anthropic/claude-sonnet-5-5
   ```
 
   Without `AI_MODEL_DEFAULT`, every feature uses `openai/gpt-5.6-luna`, so `OPENAI_API_KEY` is enough. `AI_MODEL_EVENT_GENERATION`, `AI_MODEL_EVENT_MODIFICATION`, `AI_MODEL_POST_ACTIVITY_FEEDBACK`, `AI_MODEL_FEEDBACK_EXTRACTION` and `AI_MODEL_TRIMP_ESTIMATION` override one feature. A feature whose model has no key configured is simply unavailable on the instance keys.
@@ -124,7 +131,7 @@ AI features (workout generation and editing, post-activity questions, feedback a
 - **Monthly budget**: `AI_HOSTED_MONTHLY_BUDGET_USD` caps what each user may spend per month on the instance keys, in US dollars at the providers' prices, for example `3`. Calls are charged at their model's price (input and output tokens apart); a model the API does not know is charged like a flagship model. Once the budget is used, features run only on the user's own key until the next month. Unset, usage is not limited. Users see the share they used in Settings > AI.
 - **Local models**: users can add any OpenAI-compatible endpoint, such as Ollama (`http://ollama:11434/v1`), vLLM or LM Studio. This is on by default without Stripe. Set `AI_ALLOW_CUSTOM_ENDPOINTS=false` on an instance open to the public: the server calls these URLs on users' behalf.
 
-For background features (post-activity questions, feedback analysis, load estimation), an athlete without AI uses their coach's key or plan.
+For background features (post-activity questions, feedback analysis, AI load estimation fallback), an athlete without AI uses their coach's key or plan.
 
 ### AI agents (MCP)
 
@@ -144,13 +151,41 @@ project.
   ID Metadata Documents, which the API fetches from public https addresses
   only). Clients nobody approved are deleted after a month.
 
+### Single sign-on (OpenID Connect)
+
+Users can sign in through your identity provider (Authentik, Keycloak,
+Authelia, Zitadel, Pocket ID...) with a **Continue with** button on the
+sign-in page.
+
+1. At the provider, create an OpenID Connect client (authorization code
+   flow) with the redirect URI `APP_URL/api/auth/oidc/callback`, for example
+   `https://train.example.com/api/auth/oidc/callback`. With the API on its
+   own address, it is `API_PUBLIC_URL/auth/oidc/callback`.
+2. Set the variables and recreate the API container:
+
+| Variable             | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| `OIDC_ISSUER`        | The provider's issuer URL, where `/.well-known/openid-configuration` is found      |
+| `OIDC_CLIENT_ID`     | The client ID                                                                      |
+| `OIDC_CLIENT_SECRET` | The client secret (leave empty for a public client: PKCE protects the sign-in)     |
+| `OIDC_NAME`          | The name on the button, for example `Authentik` (default `SSO`)                    |
+
+- The provider's email address names the account: a user who already has
+  an account with that address signs into it. Addresses the provider marks
+  as unverified (`email_verified: false`) are refused, so only use a
+  provider you trust to check them.
+- On a first sign-in the account is created within `SIGNUP_MODE`: with
+  `invite`, it takes the invitation link the user came from.
+- Password sign-in stays available. Single sign-on works in the web app,
+  not yet in the mobile apps.
+
 ### HTTPS and reverse proxies
 
 The `https` profile runs Caddy with automatic certificates (see the quick start). With your own proxy (Traefik, nginx, Coolify...), forward the whole domain to the web container and keep `WEB_PORT` on localhost, for example `WEB_PORT=127.0.0.1:8080`. The API trusts `X-Forwarded-For` only from proxies on private networks, which covers a proxy on the same host or Docker network. If another public proxy sits in front (for example Cloudflare), set `TRUST_PROXY` to the number of proxy hops so rate limiting sees real client IPs.
 
 ### Sign-up
 
-`SIGNUP_MODE` decides who can create an account, with a password or with Google:
+`SIGNUP_MODE` decides who can create an account, with a password, with Google or through single sign-on:
 
 | Value            | Who can sign up                                                              |
 | ---------------- | ---------------------------------------------------------------------------- |

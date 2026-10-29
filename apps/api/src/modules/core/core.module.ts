@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 
 import { AuthModule } from '../auth';
 import { CalendarModule } from '../calendar/calendar.module';
+import { OAuthTokensModule } from '../mcp/auth/oauth-tokens.module';
 import { MessagesModule } from '../messages/messages.module';
 import { PrismaService } from '../prisma/services/prisma.service';
 import { ProvidersSyncModule } from '../providers-sync/providers-sync.module';
@@ -65,6 +66,7 @@ import { WeatherService } from './services/weather/weather.service';
 @Module({
   imports: [
     AuthModule,
+    OAuthTokensModule,
     forwardRef(() => CalendarModule),
     forwardRef(() => MessagesModule),
     forwardRef(() => QueueModule),

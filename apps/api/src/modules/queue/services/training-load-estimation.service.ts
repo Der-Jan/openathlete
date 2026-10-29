@@ -37,7 +37,7 @@ export class TrainingLoadEstimationService {
     eventId: number,
     eventTrainingId: number,
     athleteId: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       // Only estimate when the athlete (or a coach) has AI for it
       const model = await this.aiModelResolver.tryResolveForAthlete(
@@ -48,7 +48,7 @@ export class TrainingLoadEstimationService {
         this.logger.debug(
           `No AI for training load estimation of athlete ${athleteId}, not scheduling event ${eventId}`,
         );
-        return;
+        return false;
       }
 
       const jobId = `training-load-estimation-${eventId}`;
@@ -108,6 +108,7 @@ export class TrainingLoadEstimationService {
       this.logger.log(
         `Scheduled training load estimation for event ${eventId} (athlete ${athleteId}) in 1 minute`,
       );
+      return true;
     } catch (error) {
       this.logger.error(
         `Failed to schedule training load estimation for event ${eventId}: ${error instanceof Error ? error.message : String(error)}`,

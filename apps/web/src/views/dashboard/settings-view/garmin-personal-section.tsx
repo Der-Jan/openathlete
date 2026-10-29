@@ -1,12 +1,15 @@
 import { eventKeys } from '@/api/event/event.keys';
 import { GarminPersonalAPI } from '@/api/garmin-personal/garmin-personal.api';
+import { useGarminPersonalStatus } from '@/api/garmin-personal/garmin-personal.hooks';
+import { garminPersonalKeys } from '@/api/garmin-personal/garmin-personal.keys';
 import { useGetMeQuery } from '@/api/user';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { m } from '@/paraglide/messages';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -47,7 +50,7 @@ export function GarminPersonalSection() {
 
 function PersonalConnection({ userId }: { userId: number }) {
   const cache = useQueryClient();
-  const key = ['garmin-personal', userId];
+  const key = garminPersonalKeys.status(userId);
   const [apiKey, setApiKey] = useState('');
   const [activities, setActivities] = useState(false);
   const [automatic, setAutomatic] = useState(false);
@@ -57,12 +60,7 @@ function PersonalConnection({ userId }: { userId: number }) {
   const [endDate, setEndDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
-  const status = useQuery({
-    queryKey: key,
-    queryFn: GarminPersonalAPI.status,
-    refetchInterval: (q) =>
-      ['queued', 'running'].includes(q.state.data?.status ?? '') ? 3000 : false,
-  });
+  const status = useGarminPersonalStatus(userId);
   const update = (value: GarminPersonalStatus) => {
     cache.setQueryData(key, value);
   };
@@ -75,9 +73,14 @@ function PersonalConnection({ userId }: { userId: number }) {
       setApiKey('');
       update(value);
     },
-    onError: () => {
+    onError: (error) => {
       setApiKey('');
-      failed();
+      if (
+        isAxiosError(error) &&
+        error.response?.data?.message === 'key_required'
+      )
+        toast.error(m.garmin_personal_key_required());
+      else failed();
     },
   });
   const preferences = useMutation({
@@ -96,6 +99,7 @@ function PersonalConnection({ userId }: { userId: number }) {
   const sync = useMutation({
     mutationFn: GarminPersonalAPI.sync,
     onSuccess: () => {
+      status.restartPolling();
       void cache.invalidateQueries({ queryKey: key });
     },
     onError: importFailed,

@@ -59,6 +59,7 @@ enum SportType {
   INLINE_SKATE
   KAYAKING
   KITESURF
+  MARTIAL_ARTS
   MOBILITY
   MOUNTAIN_BIKE_RIDE
   NORDIC_SKI
@@ -108,6 +109,8 @@ enum TokenType {
   PASSWORD_RESET
   ATHLETE_INVITATION
   COACH_INVITATION
+  /// One-time code that hands an OpenID Connect sign-in to the web app
+  OIDC_LOGIN
 
   @@map("token_type")
 }

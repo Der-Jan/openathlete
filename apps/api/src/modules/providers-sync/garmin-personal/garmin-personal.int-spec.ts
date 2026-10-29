@@ -19,6 +19,8 @@ import {
 } from '../../auth/services/account-deletion.fixture';
 import { AccountDeletionService } from '../../auth/services/account-deletion.service';
 import { AccountExportService } from '../../auth/services/account-export.service';
+import { OidcService } from '../../auth/services/oidc.service';
+import { InstanceController } from '../../instance/instance.controller';
 import { PrismaService } from '../../prisma/services/prisma.service';
 import { QueueService } from '../../queue/queue.service';
 import {
@@ -97,6 +99,12 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
   let service: GarminPersonalService;
   let app: INestApplication;
   let origin: string;
+  let enabled = true;
+  const config = {
+    get: (key: string) =>
+      key === 'GARMIN_PERSONAL_API_ENABLED' ? enabled : undefined,
+    getOrThrow: () => 'test-only-instance-pepper',
+  };
   const jobs = new Map<
     string,
     { data: PersonalJob; getState: () => Promise<string> }
@@ -147,15 +155,18 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
     service = new GarminPersonalService(
       prisma,
       client as unknown as GarminPersonalClient,
-      {
-        getOrThrow: () => 'test-only-instance-pepper',
-      } as unknown as ConfigService<ApiEnvSchemaType, true>,
+      config as unknown as ConfigService<ApiEnvSchemaType, true>,
       queue as unknown as Queue<PersonalJob>,
       processing as unknown as QueueService,
     );
     const module = await Test.createTestingModule({
-      controllers: [GarminPersonalController],
-      providers: [{ provide: GarminPersonalService, useValue: service }],
+      controllers: [GarminPersonalController, InstanceController],
+      providers: [
+        { provide: GarminPersonalService, useValue: service },
+        { provide: ConfigService, useValue: config },
+        { provide: PrismaService, useValue: prisma },
+        { provide: OidcService, useValue: { info: () => null } },
+      ],
     })
       .overrideGuard(AuthGuard('jwt'))
       .useValue({
@@ -176,6 +187,7 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
     await prisma.$disconnect();
   });
   beforeEach(async () => {
+    enabled = true;
     const tables = await prisma.$queryRaw<
       { table_name: string }[]
     >`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' AND table_name <> '_prisma_migrations'`;
@@ -183,6 +195,8 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
       `TRUNCATE ${tables.map((v) => `"${v.table_name}"`).join(',')} RESTART IDENTITY CASCADE`,
     );
     for (const sql of accountFixtureSql) await prisma.$executeRawUnsafe(sql);
+    // General account lifecycle tests seed both owners; import scenarios start disconnected.
+    await prisma.garminPersonalConnection.deleteMany();
     jest.clearAllMocks();
     jobs.clear();
     client.authorize.mockResolvedValue({
@@ -196,6 +210,78 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
     ]);
     client.download.mockResolvedValue(activityZip());
     processing.addActivityProcessingJob.mockReset().mockResolvedValue({});
+  });
+  it('hides the capability and rejects every connection route when disabled', async () => {
+    enabled = false;
+    const instance = await fetch(origin + '/instance').then((r) => r.json());
+    expect(instance.garminPersonalApi).toBe(false);
+    for (const [path, method] of [
+      ['', 'GET'],
+      ['', 'POST'],
+      ['', 'PATCH'],
+      ['', 'DELETE'],
+      ['/sync', 'POST'],
+    ]) {
+      const response = await send(
+        path,
+        method,
+        method === 'POST' || method === 'PATCH' ? {} : undefined,
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        message: 'PROVIDER_NOT_CONFIGURED',
+      });
+    }
+    expect(client.authorize).not.toHaveBeenCalled();
+    expect(await prisma.garminPersonalConnection.count()).toBe(0);
+  });
+  it('advertises the capability only when enabled', async () => {
+    expect(
+      (await fetch(origin + '/instance').then((r) => r.json()))
+        .garminPersonalApi,
+    ).toBe(true);
+  });
+  it('does not claim work when disabled, even for previously queued jobs', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    enabled = false;
+    await expect(run()).resolves.toBeUndefined();
+    expect(client.activities).not.toHaveBeenCalled();
+    expect((await connection()).leaseId).toBeNull();
+  });
+  it('treats a held lease as a no-op without fetching Garmin or changing its owner', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    const c = await connection();
+    await prisma.garminPersonalConnection.update({
+      where: { id: c.id },
+      data: {
+        leaseId: 'other-worker',
+        leaseUntil: new Date(Date.now() + 60000),
+        status: 'running',
+      },
+    });
+    await expect(run()).resolves.toBeUndefined();
+    expect(client.activities).not.toHaveBeenCalled();
+    expect((await connection()).leaseId).toBe('other-worker');
+  });
+  it('requires a replacement key after decryption failure and refuses another queued pull', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    const c = await connection();
+    await prisma.garminPersonalConnection.update({
+      where: { id: c.id },
+      data: { encryptedCredentials: 'v1:corrupt:credential:value' },
+    });
+    await expect(run()).rejects.toMatchObject({ code: 'key_required' });
+    expect(client.activities).not.toHaveBeenCalled();
+    expect(await service.status(DELETED_USER_ID)).toMatchObject({
+      status: 'key_required',
+      error: 'key_required',
+    });
+    expect((await connection()).leaseId).toBeNull();
+    await expect(service.enqueue(DELETED_USER_ID, range)).rejects.toThrow(
+      'key_required',
+    );
+    await service.connect(DELETED_USER_ID, dto);
+    await expect(run()).resolves.toMatchObject({ imported: 1 });
   });
   it('requires authentication, rejects client-selected owners and stores credentials only encrypted', async () => {
     expect((await send('', 'GET', undefined, 0)).status).toBe(401);

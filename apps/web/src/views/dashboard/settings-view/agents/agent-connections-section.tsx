@@ -90,7 +90,9 @@ export function AgentConnectionsSection() {
                       <Badge variant="secondary">
                         {connection.scopes.includes('write')
                           ? m.mcp_scope_write()
-                          : m.mcp_scope_read()}
+                          : connection.scopes.includes('read')
+                            ? m.mcp_scope_read()
+                            : m.mcp_scope_import()}
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">

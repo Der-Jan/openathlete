@@ -40,3 +40,22 @@ export const useLoginWithFirebaseMutation = (
     },
   });
 };
+
+export const useExchangeOidcCodeMutation = (
+  opt?: MutationOptions<
+    Awaited<ReturnType<typeof AuthAPI.exchangeOidcCode>>,
+    Error,
+    Parameters<typeof AuthAPI.exchangeOidcCode>[0]
+  >,
+) => {
+  return useMutation({
+    ...opt,
+    mutationFn: AuthAPI.exchangeOidcCode,
+    onSuccess: (data, variables, onMutateResult, context) => {
+      setItem(REFRESH_TOKEN, data.refreshToken);
+      setItem(ACCESS_TOKEN, data.accessToken);
+      if (opt?.onSuccess)
+        opt.onSuccess(data, variables, onMutateResult, context);
+    },
+  });
+};

@@ -25,6 +25,8 @@ export class TokenService {
         return 60 * 60 * 24 * 7 * 1000; // 7 days;
       case TokenType.COACH_INVITATION:
         return 60 * 60 * 24 * 7 * 1000; // 7 days;
+      case TokenType.OIDC_LOGIN:
+        return 60 * 1000; // The web app exchanges it at once
       default:
         return 0;
     }
@@ -44,10 +46,12 @@ export class TokenService {
     return token;
   }
 
-  async verifyToken(token: string): Promise<UserRow | null> {
+  /** The user of a valid token of that type: a token works for its purpose only */
+  async verifyToken(token: string, type: TokenType): Promise<UserRow | null> {
     const tokenData = await this.prisma.token.findFirst({
       where: {
         token,
+        type,
       },
       include: {
         user: true,
@@ -71,5 +75,18 @@ export class TokenService {
       return null;
     }
     return tokenData.user;
+  }
+
+  /**
+   * Like verifyToken, and the token is spent: of two requests with the same
+   * token, only one gets the user.
+   */
+  async consumeToken(token: string, type: TokenType): Promise<UserRow | null> {
+    const user = await this.verifyToken(token, type);
+    if (!user) return null;
+    const { count } = await this.prisma.token.deleteMany({
+      where: { token, type },
+    });
+    return count === 1 ? user : null;
   }
 }

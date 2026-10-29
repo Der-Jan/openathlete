@@ -196,10 +196,11 @@ export const mapGarminActivityType = (type: string): SportType => {
     case 'JUMP_ROPE':
     case 'DANCE':
     case 'DISC_GOLF':
-    case 'MIXED_MARTIAL_ARTS':
     case 'MOUNTAINEERING':
     case 'ROCK_CLIMBING':
       return SportType.ROCK_CLIMBING;
+    case 'MIXED_MARTIAL_ARTS':
+      return SportType.MARTIAL_ARTS;
     case 'STOP_WATCH':
     case 'BOXING':
     case 'OTHER':

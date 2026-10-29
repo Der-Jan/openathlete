@@ -20,6 +20,7 @@ import {
   EventNote,
   EventTraining,
   EventType,
+  MetricType,
   Prisma,
 } from '@openathlete/database';
 import {
@@ -59,8 +60,45 @@ import {
   reductActivityStreamToResolution,
   uncompressActivityStream,
 } from '../helpers/activity-stream';
+import {
+  PlannedWorkoutStep,
+  estimatePlannedSessionTrimp,
+  getHeartRateProfile,
+} from '../helpers/training-load';
 import { EVENT_INCLUDES } from './event-includes';
 import { WorkoutService } from './workout.service';
+
+type ComparableStep = PlannedWorkoutStep & {
+  stepType?: string | null;
+  repeatBlock?: {
+    repetitions: number;
+    childSteps?: ComparableStep[];
+  } | null;
+};
+
+function normalizeStepForLoadComparison(step: ComparableStep): unknown {
+  return {
+    stepType: step.stepType ?? 'STEADY',
+    durationType: step.durationType ?? 'OPEN',
+    durationValue: step.durationValue ?? null,
+    targets: (step.targets ?? []).map((target) => ({
+      targetType: target.targetType,
+      targetMin: target.targetMin ?? null,
+      targetMax: target.targetMax ?? null,
+      targetValue: target.targetValue ?? null,
+      metricType: target.metricType ?? null,
+    })),
+    repeatBlock:
+      step.repeatBlock && step.repeatBlock.childSteps?.length
+        ? {
+            repetitions: step.repeatBlock.repetitions,
+            childSteps: step.repeatBlock.childSteps.map(
+              normalizeStepForLoadComparison,
+            ),
+          }
+        : null,
+  };
+}
 
 @Injectable()
 export class EventService {
@@ -406,26 +444,15 @@ export class EventService {
       );
     }
 
-    // Schedule training load estimation for future training events
-    if (
-      type === 'TRAINING' &&
-      created.training &&
-      created.startDate > startOfDay(new Date()) &&
-      this.trainingLoadEstimationService
-    ) {
-      this.trainingLoadEstimationService
-        .scheduleEstimation(
-          created.eventId,
-          created.training.eventTrainingId,
-          finalAthleteId,
-        )
-        .catch((error) => {
-          // Log but don't fail the request
-          this.logger.error(
-            `Failed to schedule training load estimation: ${error instanceof Error ? error.message : String(error)}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-        });
+    // Compute training load or schedule AI estimation for training events
+    if (type === 'TRAINING' && created.training) {
+      const isFuture = created.startDate > startOfDay(new Date());
+      await this.computeAndApplyPlannedTrainingLoad(
+        created.eventId,
+        finalAthleteId,
+        created.training.eventTrainingId,
+        isFuture,
+      );
     }
 
     if (created.type === 'ACTIVITY')
@@ -438,6 +465,198 @@ export class EventService {
         }),
       );
     return this.getEventById(user, created.eventId);
+  }
+
+  /**
+   * Computes the deterministic training load for a planned session upon creation
+   * or update. If deterministic estimation is not possible (e.g. structured
+   * workout with pace/power/distance steps), enqueues an AI estimation job if
+   * the session is in the future.
+   */
+  async computeAndApplyPlannedTrainingLoad(
+    eventId: number,
+    athleteId: number,
+    eventTrainingId: number,
+    isFuture: boolean,
+  ): Promise<number | null> {
+    try {
+      const [event, hrMax, hrRest] = await Promise.all([
+        this.prisma.event.findUnique({
+          where: { eventId },
+          include: {
+            training: {
+              include: {
+                workout: {
+                  include: {
+                    steps: {
+                      include: {
+                        targets: true,
+                        repeatBlock: {
+                          include: {
+                            childSteps: {
+                              include: { targets: true },
+                              orderBy: { orderIndex: 'asc' },
+                            },
+                          },
+                        },
+                      },
+                      orderBy: { orderIndex: 'asc' },
+                    },
+                  },
+                },
+              },
+            },
+            athlete: {
+              include: {
+                user: { select: { gender: true } },
+                trainingZones: { include: { values: true } },
+              },
+            },
+          },
+        }),
+        this.prisma.athleteMetric.findFirst({
+          where: { athleteId, type: MetricType.HR_MAX },
+          orderBy: { date: 'desc' },
+        }),
+        this.prisma.athleteMetric.findFirst({
+          where: { athleteId, type: MetricType.HR_REST },
+          orderBy: { date: 'desc' },
+        }),
+      ]);
+
+      if (!event?.training || !event.athlete) {
+        return null;
+      }
+
+      const profile = getHeartRateProfile(
+        [
+          ...(hrMax ? [{ type: MetricType.HR_MAX, value: hrMax.value }] : []),
+          ...(hrRest
+            ? [{ type: MetricType.HR_REST, value: hrRest.value }]
+            : []),
+        ],
+        event.athlete.user.gender,
+      );
+
+      let estimate = estimatePlannedSessionTrimp({
+        goalDuration: event.training.goalDuration,
+        goalRpe: event.training.goalRpe,
+        sport: event.training.sport,
+        workout: event.training.workout,
+        zones: event.athlete.trainingZones,
+        profile,
+      });
+
+      if (!estimate) {
+        if (isFuture && this.trainingLoadEstimationService) {
+          const scheduled =
+            await this.trainingLoadEstimationService.scheduleEstimation(
+              eventId,
+              eventTrainingId,
+              athleteId,
+            );
+          if (scheduled) {
+            return null;
+          }
+        }
+        estimate = estimatePlannedSessionTrimp({
+          goalDuration: event.training.goalDuration,
+          goalRpe: event.training.goalRpe,
+          profile,
+        });
+      }
+
+      if (estimate) {
+        await this.prisma.eventTraining.update({
+          where: { eventTrainingId },
+          data: { estimatedLoad: estimate.value },
+        });
+        this.logger.log(
+          `✨ Training load estimated for event ${eventId}: ${estimate.value} TRIMP (${estimate.method})`,
+        );
+        this.calendarWebSocketService?.notifyTrainingLoadEstimationCompleted(
+          eventId,
+          athleteId,
+          estimate.value,
+        );
+        if (this.trainingLoadEstimationService) {
+          await this.trainingLoadEstimationService.cancelEstimation(eventId);
+        }
+        return estimate.value;
+      }
+
+      if (event.training.estimatedLoad !== null) {
+        await this.prisma.eventTraining.update({
+          where: { eventTrainingId },
+          data: { estimatedLoad: null },
+        });
+        this.calendarWebSocketService?.notifyTrainingLoadEstimationCompleted(
+          eventId,
+          athleteId,
+          null,
+        );
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(
+        `Failed to compute planned training load for event ${eventId}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return null;
+    }
+  }
+
+  private shouldRecomputePlannedTrainingLoad(
+    previous: {
+      estimatedLoad: number | null;
+      sport: string;
+      goalDuration: number | null;
+      goalRpe: number | null;
+      workout?: { steps?: ComparableStep[] } | null;
+    },
+    data: UpdateEventDto,
+  ): boolean {
+    if (previous.estimatedLoad === null) {
+      return true;
+    }
+    if (
+      'sport' in data &&
+      data.sport !== undefined &&
+      data.sport !== previous.sport
+    ) {
+      return true;
+    }
+    if (
+      'goalDuration' in data &&
+      data.goalDuration !== undefined &&
+      data.goalDuration !== previous.goalDuration
+    ) {
+      return true;
+    }
+    if (
+      'goalRpe' in data &&
+      data.goalRpe !== undefined &&
+      data.goalRpe !== previous.goalRpe
+    ) {
+      return true;
+    }
+    if ('workout' in data && data.workout !== undefined) {
+      if (data.workout === null) {
+        return (previous.workout?.steps?.length ?? 0) > 0;
+      }
+      if (data.workout.steps !== undefined) {
+        const previousSteps = (previous.workout?.steps ?? []).map(
+          normalizeStepForLoadComparison,
+        );
+        const nextSteps = (data.workout.steps as ComparableStep[]).map(
+          normalizeStepForLoadComparison,
+        );
+        if (JSON.stringify(previousSteps) !== JSON.stringify(nextSteps)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   emitWorkoutPlannedChanged(
@@ -640,28 +859,20 @@ export class EventService {
       }
     }
 
-    // Schedule training load estimation for future training events (skip for templates)
+    // Recompute training load or schedule AI estimation for training events (skip for templates)
     if (
       !isTemplate &&
       event.type === 'TRAINING' &&
       event.training &&
-      updatedEvent.startDate > startOfDay(new Date()) &&
-      this.trainingLoadEstimationService &&
-      event.training.estimatedLoad === null
+      this.shouldRecomputePlannedTrainingLoad(event.training, data)
     ) {
-      this.trainingLoadEstimationService
-        .scheduleEstimation(
-          eventId,
-          event.training.eventTrainingId,
-          event.athleteId!,
-        )
-        .catch((error) => {
-          // Log but don't fail the request
-          this.logger.error(
-            `Failed to schedule training load estimation: ${error instanceof Error ? error.message : String(error)}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-        });
+      const isFuture = updatedEvent.startDate > startOfDay(new Date());
+      await this.computeAndApplyPlannedTrainingLoad(
+        eventId,
+        event.athleteId!,
+        event.training.eventTrainingId,
+        isFuture,
+      );
     }
 
     // If date changed and there's a workout, emit event for new date too (skip for templates)
@@ -1281,26 +1492,19 @@ export class EventService {
       include: EVENT_INCLUDES,
     });
 
-    // Schedule training load estimation for future training events
+    // Compute training load or schedule AI estimation for duplicated training events
     if (
       originalEvent.type === 'TRAINING' &&
       finalDuplicatedEvent?.training &&
-      finalDuplicatedEvent.startDate > startOfDay(new Date()) &&
-      this.trainingLoadEstimationService
+      originalEvent.athleteId
     ) {
-      this.trainingLoadEstimationService
-        .scheduleEstimation(
-          duplicatedEvent.eventId,
-          finalDuplicatedEvent.training.eventTrainingId,
-          originalEvent.athleteId!,
-        )
-        .catch((error) => {
-          // Log but don't fail the request
-          this.logger.error(
-            `Failed to schedule training load estimation: ${error instanceof Error ? error.message : String(error)}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-        });
+      const isFuture = finalDuplicatedEvent.startDate > startOfDay(new Date());
+      await this.computeAndApplyPlannedTrainingLoad(
+        duplicatedEvent.eventId,
+        originalEvent.athleteId,
+        finalDuplicatedEvent.training.eventTrainingId,
+        isFuture,
+      );
     }
 
     // Notify websocket for training load reload (same as updateEvent)

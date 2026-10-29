@@ -729,6 +729,19 @@ export const SPORT_CONFIG: Record<SPORT_TYPE, SportStatisticsConfig> = {
     speedUnit: 'km/h',
     speedLabel: 'speed',
   },
+  [SPORT_TYPE.MARTIAL_ARTS]: {
+    showDistance: false,
+    showSpeed: false,
+    showMaxSpeed: false,
+    showGap: false,
+    showElevation: false,
+    showHeartrate: true,
+    showPower: false,
+    showCadence: false,
+    showSplits: false,
+    speedUnit: 'km/h',
+    speedLabel: 'speed',
+  },
   // Multisport activities
   [SPORT_TYPE.TRIATHLON]: {
     showDistance: true,

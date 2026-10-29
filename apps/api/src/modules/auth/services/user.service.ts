@@ -439,10 +439,14 @@ export class UserService {
   };
 
   public passwordReset = async (body: PasswordResetDto) => {
-    const user = await this.tokenService.verifyToken(body.token);
+    // A reset link works once
+    const user = await this.tokenService.consumeToken(
+      body.token,
+      TokenType.PASSWORD_RESET,
+    );
 
     if (!user) {
-      this.logger.log(`Token ${body.token} not found or expired`);
+      this.logger.log('Password reset token not found, expired or used');
       throw new UnauthorizedException();
     }
 

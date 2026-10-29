@@ -5,10 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
+  Optional,
   forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,6 +22,7 @@ import {
   GarminPersonalStatus,
   GarminPersonalSync,
   MAX_ACTIVITY_FILE_BYTES,
+  garminPersonalStatusSchema,
 } from '@openathlete/shared';
 
 import { prepareManualFit } from '../../core/helpers/manual-fit-import';
@@ -78,8 +79,10 @@ export class GarminPersonalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly client: GarminPersonalClient,
-    config: ConfigService<ApiEnvSchemaType, true>,
-    @InjectQueue(PERSONAL_QUEUE) private readonly jobs: Queue<PersonalJob>,
+    private readonly config: ConfigService<ApiEnvSchemaType, true>,
+    @Optional()
+    @InjectQueue(PERSONAL_QUEUE)
+    private readonly jobs: Queue<PersonalJob> | undefined,
     @Inject(forwardRef(() => QueueService))
     private readonly processing: QueueService,
   ) {
@@ -95,16 +98,16 @@ export class GarminPersonalService {
     return athlete.athleteId;
   }
   private statusOf(c: GarminPersonalConnection | null): GarminPersonalStatus {
-    return {
+    return garminPersonalStatusSchema.parse({
       connected: !!c?.encryptedCredentials,
       preferences: c
         ? { activities: c.activities, automatic: c.automatic }
         : defaults,
-      status: (c?.status ?? 'disconnected') as GarminPersonalStatus['status'],
+      status: c?.status ?? 'disconnected',
       error: c?.error ?? null,
       lastSyncedAt: c?.lastSyncedAt?.toISOString() ?? null,
-      result: (c?.result as unknown as GarminPersonalResult | null) ?? null,
-    };
+      result: c?.result ?? null,
+    });
   }
   async status(userId: number) {
     return this.statusOf(
@@ -160,7 +163,7 @@ export class GarminPersonalService {
       const c = await tx.garminPersonalConnection.findUnique({
         where: { athleteId },
       });
-      if (!c?.encryptedCredentials)
+      if (!c?.encryptedCredentials || c.status === 'key_required')
         throw new BadRequestException('key_required');
       await tx.garminPersonalConnection.update({
         where: { id: c.id },
@@ -199,9 +202,11 @@ export class GarminPersonalService {
     const c = await this.prisma.garminPersonalConnection.findUnique({
       where: { athleteId: await this.athlete(userId) },
     });
-    if (!c?.encryptedCredentials) throw new BadRequestException('key_required');
+    if (!c?.encryptedCredentials || c.status === 'key_required')
+      throw new BadRequestException('key_required');
     if (!c.activities) throw new BadRequestException('imports_disabled');
     const jobId = `personal-${c.id}-${c.version}-${range.startDate}-${range.endDate}-${Math.floor(Date.now() / 60000)}`;
+    if (!this.jobs) throw new BadRequestException('PROVIDER_NOT_CONFIGURED');
     const existing = await this.jobs.getJob(jobId);
     if (existing)
       return {
@@ -340,11 +345,14 @@ export class GarminPersonalService {
     });
   }
   async run(job: PersonalJob) {
+    if (this.config.get('GARMIN_PERSONAL_API_ENABLED') !== true) return;
     const c = await this.prisma.garminPersonalConnection.findUnique({
       where: { id: job.connectionId },
     });
     if (!c?.encryptedCredentials || c.version !== job.version || !c.activities)
       return;
+    if (c.status === 'key_required')
+      throw new GarminPersonalError('key_required');
     const leaseId = randomUUID();
     const claim = await this.prisma.garminPersonalConnection.updateMany({
       where: {
@@ -359,12 +367,25 @@ export class GarminPersonalService {
         error: null,
       },
     });
-    if (!claim.count) throw new ConflictException('Sync already running');
+    if (!claim.count) return;
     const result = emptyResult();
     try {
-      let credentials = JSON.parse(
-        this.cipher.decrypt(c.athleteId, c.encryptedCredentials),
-      ) as PersonalCredentials;
+      let credentials: PersonalCredentials;
+      try {
+        credentials = JSON.parse(
+          this.cipher.decrypt(c.athleteId, c.encryptedCredentials),
+        ) as PersonalCredentials;
+        if (
+          !credentials?.apiKey ||
+          !credentials.token ||
+          !Number.isFinite(credentials.expiresAt)
+        )
+          throw new Error();
+      } catch {
+        // A restored database with a different pepper or corrupt ciphertext
+        // cannot recover without a new key. Never keep retrying it hourly.
+        throw new GarminPersonalError('key_required');
+      }
       const persist = async () => {
         const updated = await this.prisma.garminPersonalConnection.updateMany({
           where: { id: c.id, version: c.version, leaseId },

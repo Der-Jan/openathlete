@@ -23,6 +23,9 @@ export function fitSport(sport: unknown, subSport: unknown): SPORT_TYPE {
   }
   // Garmin mobility: sport 86, not yet named by the bundled FIT SDK.
   if (sport === 86 || sport === 'mobility') return SPORT_TYPE.MOBILITY;
+  // Garmin mixed martial arts: sport 80 (mixedMartialArts in the FIT SDK).
+  if (sport === 80 || sport === 'mixedMartialArts')
+    return SPORT_TYPE.MARTIAL_ARTS;
   if (sport === 10 || sport === 4) {
     if (subSport === 20) return SPORT_TYPE.WEIGHT_TRAINING;
     if (subSport === 43) return SPORT_TYPE.YOGA;

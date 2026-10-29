@@ -6,6 +6,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Inject,
@@ -13,9 +14,11 @@ import {
   Param,
   Patch,
   Post,
+  RawBodyRequest,
   Req,
   Res,
   ServiceUnavailableException,
+  UnauthorizedException,
   UseGuards,
   forwardRef,
 } from '@nestjs/common';
@@ -1029,7 +1032,7 @@ export class ProviderOAuthController {
   @ApiOperation({
     summary: 'Suunto webhook event handler',
     description:
-      "Receives and processes webhook events from Suunto. Handles two types of events: workout notifications (when a new workout is available) and 247 Data API webhooks (for metrics data). Workout webhooks require a workoutKey to identify the workout. 247 webhooks are prefixed with 'SUUNTO_247_' and are handled separately. Invalid webhooks (missing workoutKey for workout events) return an error response.",
+      "Receives Suunto notifications, verifies their signature and queues the work, since Suunto waits 2 seconds for the answer: a new workout is imported, and 24/7 notifications (types prefixed with 'SUUNTO_247_') sync the days they cover. Other notifications, such as new routes, are acknowledged and ignored.",
   })
   @ApiBody({
     description: 'Suunto webhook payload',
@@ -1070,71 +1073,34 @@ export class ProviderOAuthController {
         message: {
           type: 'string',
           nullable: true,
-          example: '247 webhook processed',
+          example: null,
         },
       },
     },
   })
   @ApiResponse({
-    status: 400,
+    status: 401,
     description:
-      'Bad request - missing workoutKey for workout events or processing error',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: false },
-        error: {
-          type: 'string',
-          example: 'Missing workoutKey in webhook payload',
-        },
-      },
-    },
+      'The X-HMAC-SHA256-Signature header does not match the body (checked when SUUNTO_WEBHOOK_SECRET is set)',
   })
-  async suuntoWebhook(@Body() body: unknown) {
-    this.logger.log(`Received Suunto webhook request: ${JSON.stringify(body)}`);
-
-    const payload = body as SuuntoWebhookPayload;
-    const eventType = payload.type;
-
-    // Handle 247 Data API webhooks (metrics) - these are handled by the service
-    if (eventType?.startsWith('SUUNTO_247_')) {
-      try {
-        await this.suuntoProviderService.handleWebhook(payload);
-        return { success: true, message: '247 webhook processed' };
-      } catch (error) {
-        this.logger.error(
-          `Error processing Suunto 247 webhook: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
+  async suuntoWebhook(
+    @Body() body: unknown,
+    @Req() request: RawBodyRequest<Request>,
+    @Headers('x-hmac-sha256-signature') signature?: string,
+  ) {
+    if (
+      !this.suuntoProviderService.verifyWebhookSignature(
+        request.rawBody,
+        signature,
+      )
+    ) {
+      this.logger.warn('Suunto webhook rejected: invalid signature');
+      throw new UnauthorizedException('Invalid signature');
     }
-
-    // Handle workout webhooks
-    const workoutKey = payload.workout?.workoutKey || payload.workoutKey;
-    if (!workoutKey) {
-      this.logger.warn(
-        `Suunto webhook missing workoutKey. Payload: ${JSON.stringify(payload)}`,
-      );
-      return {
-        success: false,
-        error: 'Missing workoutKey in webhook payload',
-      };
-    }
-
-    try {
-      await this.suuntoProviderService.handleWebhook(payload);
-      return { success: true };
-    } catch (error) {
-      this.logger.error(
-        `Error processing Suunto webhook: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    // The work is queued: a failure here (Redis down) is worth a retry
+    await this.suuntoProviderService.handleWebhook(
+      (body ?? {}) as SuuntoWebhookPayload,
+    );
+    return { success: true };
   }
 }

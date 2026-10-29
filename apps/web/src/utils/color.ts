@@ -86,6 +86,8 @@ export const getSportColor = (sport: SPORT_TYPE) => {
       return 'bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-900 border-blue-200 dark:border-blue-800/50';
     case SPORT_TYPE.PICKLEBALL:
       return 'bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900 dark:hover:bg-yellow-900 border-yellow-200 dark:border-yellow-800/50';
+    case SPORT_TYPE.MARTIAL_ARTS:
+      return 'bg-fuchsia-100 hover:bg-fuchsia-200 dark:bg-fuchsia-900 dark:hover:bg-fuchsia-900 border-fuchsia-200 dark:border-fuchsia-800/50';
     case SPORT_TYPE.MOBILITY:
       return 'bg-rose-100 hover:bg-rose-200 dark:bg-rose-900 dark:hover:bg-rose-900 border-rose-200 dark:border-rose-800/50';
     case SPORT_TYPE.PILATES:

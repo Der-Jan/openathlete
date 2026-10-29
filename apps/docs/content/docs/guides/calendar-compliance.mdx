@@ -40,10 +40,22 @@ The **Display** menu (gear icon) chooses which of these rows show. The chart
 of weekly load and form over several months is in the
 [season view](/docs/guides/calendar-season-and-display).
 
-## Planned load without AI
+## How planned load is estimated
 
-When no AI estimate exists for a session, its load is estimated from its
-planned duration and target RPE, on your maximum and resting heart rates, in
-the same unit as the load of your activities (TRIMP). Races count too. This
-needs your heart rate profile in **Metrics**; a session without a planned
-duration has no estimate.
+Planned sessions and races are estimated in the same unit as the load of your
+activities (Banister TRIMP), using the first method that applies:
+
+1. **Workout heart-rate targets**: if every timed step of a structured workout
+   has a heart-rate target (explicit bpm, heart-rate zone, % HR max, or % HR
+   reserve), load is summed step by step over the workout.
+2. **AI fallback**: if a structured workout uses targets that cannot be
+   resolved from heart rate alone (such as pace, power, or distance steps) and
+   AI load estimation is enabled, the AI estimates the session's load.
+3. **Duration and target RPE**: for unstructured sessions, races, or when AI is
+   unavailable, load is estimated from the planned duration and target RPE.
+
+Deterministic estimation (heart-rate targets or duration and RPE) requires
+both your maximum and resting heart rates (`HR_MAX` and `HR_REST`) in
+**Metrics**, plus either heart-rate targets on every workout step (with your
+heart-rate zones configured when steps target zones) or a planned duration and
+target RPE.

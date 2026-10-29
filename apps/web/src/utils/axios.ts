@@ -11,6 +11,8 @@ export const routes = {
   auth: {
     login: '/auth/login',
     firebaseLogin: '/auth/firebase',
+    oidc: '/auth/oidc',
+    oidcExchange: '/auth/oidc/exchange',
     refreshToken: '/auth/refresh-token',
     verifyInvitation: '/auth/invitation',
   },

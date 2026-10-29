@@ -28,6 +28,16 @@ export interface GarminNotificationJobData {
   entry: Record<string, unknown>;
 }
 
+/** A Suunto webhook, handled out of the request: Suunto waits 2 seconds */
+export type SuuntoNotificationJobData =
+  | { kind: 'workout'; username: string | null; workoutKey: string }
+  | {
+      kind: 'metrics';
+      providerAccountId: number;
+      /** Epoch milliseconds; the sync runs up to now */
+      from: number;
+    };
+
 export interface ActivityProcessingJobData {
   eventActivityId: number;
   eventId: number;
@@ -47,7 +57,41 @@ export class QueueService {
     private readonly fullImportQueue: Queue<ProviderFullImportJobData>,
     @InjectQueue('garmin-notification')
     private readonly garminNotificationQueue: Queue<GarminNotificationJobData>,
+    @InjectQueue('suunto-notification')
+    private readonly suuntoNotificationQueue: Queue<SuuntoNotificationJobData>,
   ) {}
+
+  /** Suunto retries a webhook it thinks failed: import the workout once */
+  async addSuuntoWorkoutJob(
+    username: string | null,
+    workoutKey: string,
+  ): Promise<void> {
+    await this.suuntoNotificationQueue.add(
+      'workout',
+      { kind: 'workout', username, workoutKey },
+      { jobId: `suunto-workout-${workoutKey}` },
+    );
+  }
+
+  /**
+   * Sync an account's 24/7 data. Suunto sends a webhook per batch of
+   * samples: the delay gathers a burst into one sync, which waiting jobs
+   * with the same id join.
+   */
+  async addSuuntoMetricsJob(
+    providerAccountId: number,
+    from: number,
+    delayMs = 60_000,
+  ): Promise<void> {
+    await this.suuntoNotificationQueue.add(
+      'metrics',
+      { kind: 'metrics', providerAccountId, from },
+      {
+        jobId: `suunto-metrics-${providerAccountId}-${Math.floor((Date.now() + delayMs) / 60_000)}`,
+        delay: delayMs,
+      },
+    );
+  }
 
   /**
    * Queue Garmin notifications, so the webhook answers within Garmin's 30

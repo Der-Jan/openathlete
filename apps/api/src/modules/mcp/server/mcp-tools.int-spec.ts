@@ -519,6 +519,69 @@ describe('MCP tools (PostgreSQL)', () => {
     });
   });
 
+  it('colours periods with the palette of the web app', async () => {
+    const { call } = await connect(athlete);
+    const block = data<{ periodId: number; color: string }>(
+      await call('create_period', {
+        kind: 'training',
+        startDate: '2026-11-02',
+        endDate: '2026-11-15',
+        name: 'Half marathon block',
+        color: 'orange',
+      }),
+    );
+    expect(block.color).toBe('orange');
+    const stored = async () =>
+      (
+        await prisma.cycle.findUniqueOrThrow({
+          where: { cycleId: block.periodId },
+        })
+      ).color;
+    expect(await stored()).toBe('#f97316');
+
+    expect(
+      data<{ color: string }>(
+        await call('update_period', {
+          periodId: block.periodId,
+          color: 'teal',
+        }),
+      ).color,
+    ).toBe('teal');
+    expect(await stored()).toBe('#14b8a6');
+
+    const taper = data<{ color: string }>(
+      await call('create_period', {
+        kind: 'training',
+        startDate: '2026-11-16',
+        endDate: '2026-11-29',
+      }),
+    );
+    expect(taper.color).toBe('blue');
+    // A colour set through the REST API outside the palette stays as hex
+    await prisma.cycle.update({
+      where: { cycleId: block.periodId },
+      data: { color: '#123ABC' },
+    });
+    const calendar = data<{ periods: { name: string; color: string }[] }>(
+      await call('get_calendar', { from: '2026-11-01', to: '2026-11-30' }),
+    );
+    expect(calendar.periods).toEqual([
+      expect.objectContaining({
+        name: 'Half marathon block',
+        color: '#123abc',
+      }),
+      expect.objectContaining({ name: 'Training block', color: 'blue' }),
+    ]);
+    expect(
+      errorOf(
+        await call('update_period', {
+          periodId: block.periodId,
+          color: 'magenta',
+        }),
+      ),
+    ).toContain('color');
+  });
+
   it('records metrics on their day and refuses the future', async () => {
     // Fourteen hours ahead of UTC: a local midday is the day before in UTC
     await prisma.user.update({

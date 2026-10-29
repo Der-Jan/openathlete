@@ -131,6 +131,8 @@ export const mapSuuntoActivityId = (activityId: number): SportType => {
       return SportType.ROCK_CLIMBING;
     case 49: // Ice skating
       return SportType.ICE_SKATE;
+    case 62: // Combat sport
+      return SportType.MARTIAL_ARTS;
     case 108: // Wheelchair sport
       return SportType.WHEELCHAIR;
 
@@ -175,7 +177,6 @@ export const mapSuuntoActivityId = (activityId: number): SportType => {
     case 48: // Rugby
     case 50: // Ice hockey
     case 58: // Stretching
-    case 62: // Combat sport
     case 64: // Dancing
     case 66: // Frisbee golf
     case 67: // Futsal

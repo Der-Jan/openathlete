@@ -8,7 +8,6 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
@@ -28,6 +27,7 @@ import {
 } from '@openathlete/shared';
 
 import { AuthUser, JwtUser } from '../../auth/decorators/user.decorator';
+import { ActivityImportAuthGuard } from '../../mcp/auth/activity-import-auth.guard';
 import { MAX_MANUAL_FIT_BYTES } from '../helpers/manual-fit-import';
 import {
   ManualFitFile,
@@ -36,7 +36,8 @@ import {
 
 @ApiTags('Activities')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'))
+// The web app's session, or an OAuth token of an app that sends files
+@UseGuards(ActivityImportAuthGuard)
 @Controller('activity-import')
 export class ManualFitImportController {
   constructor(private readonly service: ManualFitImportService) {}

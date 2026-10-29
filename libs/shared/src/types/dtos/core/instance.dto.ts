@@ -12,10 +12,12 @@ export interface InstanceInfoDto {
   /** Connectors users can connect */
   providers: ConnectorProvider[];
   /** Per-user Garmin Personal API key setup; does not require shared OAuth credentials. */
-  garminPersonalApi?: boolean;
+  garminPersonalApi: boolean;
   /**
    * Who can create an account now: SIGNUP_MODE, except that an instance
    * without any account is open, for its administrator
    */
   signup: 'open' | 'invite' | 'closed';
+  /** Sign-in through the instance's OpenID Connect provider, and its name */
+  oidc: { name: string } | null;
 }

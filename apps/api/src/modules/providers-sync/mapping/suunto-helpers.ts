@@ -1,11 +1,24 @@
 import { SportType } from '@openathlete/database';
 
 /**
- * Maps our sport types to Suunto activity IDs
- * Based on Suunto Activities documentation
- * Returns array of activity IDs that the guide is compatible with
+ * Activity ids of the Guides API. Newer sports (track running, e-biking,
+ * vertical running...) exist on recent watches, but a guide that lists one
+ * is refused.
+ */
+const GUIDE_ACTIVITY_IDS = new Set(
+  Array.from({ length: 103 }, (_, id) => id).filter((id) => id !== 89),
+);
+
+/**
+ * The Suunto activities a guide is recommended for. None: the guide is
+ * offered in every sport mode.
  */
 export function mapSportToSuuntoActivityIds(sport: SportType): number[] {
+  return suuntoActivityIds(sport).filter((id) => GUIDE_ACTIVITY_IDS.has(id));
+}
+
+/** Based on Suunto's list of activities */
+function suuntoActivityIds(sport: SportType): number[] {
   switch (sport) {
     // Running
     case SportType.RUNNING:
@@ -23,11 +36,11 @@ export function mapSportToSuuntoActivityIds(sport: SportType): number[] {
     case SportType.GRAVEL_RIDE:
       return [99]; // Gravel cycling
     case SportType.E_BIKE_RIDE:
-      return [105]; // E-biking
+      return [105, 2]; // E-biking, Cycling
     case SportType.E_MOUNTAIN_BIKE_RIDE:
-      return [106]; // E-mtb
+      return [106, 10]; // E-mtb, Mountain biking
     case SportType.HANDCYCLE:
-      return [109]; // Hand cycling
+      return [109, 2]; // Hand cycling, Cycling
 
     // Swimming
     case SportType.SWIMMING:
@@ -95,7 +108,7 @@ export function mapSportToSuuntoActivityIds(sport: SportType): number[] {
     case SportType.YOGA:
       return [51, 121]; // Yoga/pilates, Yoga
     case SportType.PILATES:
-      return [120]; // Pilates
+      return [120, 51]; // Pilates, Yoga/pilates
     case SportType.CROSSFIT:
     case SportType.HIGH_INTENSITY_INTERVAL_TRAINING:
       return [54]; // Crossfit
@@ -152,7 +165,8 @@ function sanitizeText(text: string): string {
       // Remove backslashes
       .replaceAll('\\', '')
       // Remove control characters (except newline for text fields)
-      .replaceAll('[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]', '')
+      // eslint-disable-next-line no-control-regex
+      .replaceAll(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '')
       // Normalize multiple spaces to single space
       .replaceAll(/\s+/g, ' ')
       // Trim whitespace

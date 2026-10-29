@@ -34,3 +34,31 @@ test('refuses to connect a device service the instance has not set up', async ({
   expect(response.status()).toBe(503);
   expect(await response.text()).toContain('PROVIDER_NOT_CONFIGURED');
 });
+
+// Zod 3 validates every element of an array: oversized bodies and arrays
+// stop before validation (GHSA-mrhx-c7xc-m3w5)
+test('refuses oversized JSON bodies and arrays', async ({ request }) => {
+  const athlete = await createAthlete(request);
+  const headers = apiHeaders(undefined, athlete.accessToken);
+
+  const tooLarge = await request.post(`${API_URL}/event`, {
+    headers,
+    data: { padding: 'x'.repeat(1_100_000) },
+  });
+  expect(tooLarge.status()).toBe(413);
+
+  const tooLong = await request.post(`${API_URL}/event`, {
+    headers,
+    data: { steps: new Array(10_001).fill(0) },
+  });
+  expect(tooLong.status()).toBe(413);
+});
+
+test('accepts large Garmin notifications, as its review requires', async ({
+  request,
+}) => {
+  const response = await request.post(`${API_URL}/provider/garmin/webhook`, {
+    data: { activities: [], padding: 'x'.repeat(2_000_000) },
+  });
+  expect(response.status()).toBe(200);
+});

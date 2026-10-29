@@ -2,12 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 
-import { OAuthClient } from '@openathlete/database';
+import { OAuthClient, OAuthResource } from '@openathlete/database';
 import {
   ApiEnvSchemaType,
-  McpScope,
+  OAUTH_SCOPES,
   OAuthAuthorizeDetails,
   OAuthAuthorizeRequest,
+  OAuthScope,
 } from '@openathlete/shared';
 
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
@@ -16,7 +17,7 @@ import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 import { McpUrls, mcpUrls } from '../mcp-urls';
 import { OAuthClientsService } from './oauth-clients.service';
 import { AuthorizeError, OAuthError } from './oauth-error';
-import { parseScopes } from './scopes';
+import { parseScopes, scopesFor } from './scopes';
 import {
   TOKEN_PREFIX,
   generateToken,
@@ -34,8 +35,9 @@ const UNUSED_CLIENT_TTL_MS = 30 * 24 * 3600 * 1000;
 type ValidRequest = {
   client: OAuthClient;
   redirectUri: string;
-  scopes: McpScope[];
+  scopes: OAuthScope[];
   resource: string;
+  resourceKind: OAuthResource;
   codeChallenge: string;
   state?: string;
 };
@@ -67,10 +69,10 @@ const sameResource = (a: string, b: string) =>
   withoutTrailingSlashes(a) === withoutTrailingSlashes(b);
 
 /**
- * The OAuth 2.1 authorization server of the MCP endpoint: authorization code
- * with PKCE (S256 only), single-use refresh tokens, tokens bound to the MCP
- * resource (RFC 8707). The user approves on a page of the web app, where they
- * are already signed in.
+ * The OAuth 2.1 authorization server of the MCP endpoint and of the activity
+ * import API: authorization code with PKCE (S256 only), single-use refresh
+ * tokens, each token bound to one of the two resources (RFC 8707). The user
+ * approves on a page of the web app, where they are already signed in.
  */
 @Injectable()
 export class OAuthService {
@@ -94,7 +96,7 @@ export class OAuthService {
       token_endpoint: `${issuer}/oauth/token`,
       registration_endpoint: `${issuer}/oauth/register`,
       revocation_endpoint: `${issuer}/oauth/revoke`,
-      scopes_supported: ['read', 'write'],
+      scopes_supported: [...OAUTH_SCOPES],
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
@@ -121,12 +123,39 @@ export class OAuthService {
     return {
       resource: this.urls.resource,
       authorization_servers: [this.urls.issuer],
-      scopes_supported: ['read', 'write'],
+      scopes_supported: scopesFor(OAUTH_SCOPES, 'MCP'),
       bearer_methods_supported: ['header'],
       resource_name: 'OpenAthlete',
       resource_documentation:
         'https://docs.openathlete.org/docs/guides/ai-agents',
     };
+  }
+
+  /** Protected Resource Metadata of the activity import API (RFC 9728) */
+  importResourceMetadata() {
+    return {
+      resource: this.urls.importResource,
+      authorization_servers: [this.urls.issuer],
+      scopes_supported: scopesFor(OAUTH_SCOPES, 'ACTIVITY_IMPORT'),
+      bearer_methods_supported: ['header'],
+      resource_name: 'OpenAthlete activity import',
+      resource_documentation:
+        'https://docs.openathlete.org/docs/guides/activity-import-api',
+    };
+  }
+
+  /** Which resource a requested resource URL names; MCP when absent */
+  private resourceKind(resource: string | undefined): OAuthResource | null {
+    // Clients must name the resource; older MCP ones only know the server
+    if (!resource || sameResource(resource, this.urls.resource)) return 'MCP';
+    if (sameResource(resource, this.urls.importResource)) {
+      return 'ACTIVITY_IMPORT';
+    }
+    return null;
+  }
+
+  private resourceUrl(kind: OAuthResource): string {
+    return kind === 'MCP' ? this.urls.resource : this.urls.importResource;
   }
 
   get consentPage() {
@@ -174,16 +203,20 @@ export class OAuthService {
         'PKCE is required: send code_challenge with code_challenge_method=S256',
       );
     }
-    const scopes = parseScopes(request.scope);
-    if (!scopes) {
-      throw fail('invalid_scope', 'Scopes are read and write');
-    }
-    // Clients must name the resource; older ones only know the server
-    const resource = request.resource ?? this.urls.resource;
-    if (!sameResource(resource, this.urls.resource)) {
+    const resourceKind = this.resourceKind(request.resource);
+    if (!resourceKind) {
       throw fail(
         'invalid_target',
-        `The only resource is ${this.urls.resource}`,
+        `Resources are ${this.urls.resource} and ${this.urls.importResource}`,
+      );
+    }
+    const scopes = parseScopes(request.scope, resourceKind);
+    if (!scopes) {
+      throw fail(
+        'invalid_scope',
+        resourceKind === 'MCP'
+          ? 'Scopes of the MCP endpoint are read and write'
+          : 'The scope of the activity import API is activities:import',
       );
     }
 
@@ -191,7 +224,8 @@ export class OAuthService {
       client,
       redirectUri: request.redirect_uri,
       scopes,
-      resource: this.urls.resource,
+      resource: this.resourceUrl(resourceKind),
+      resourceKind,
       codeChallenge: request.code_challenge,
       state: request.state,
     };
@@ -238,6 +272,23 @@ export class OAuthService {
     }
 
     const code = generateToken(TOKEN_PREFIX.code);
+    // One access per client: approving one resource keeps what the client
+    // was given for the other
+    const existing = await this.prisma.mcpGrant.findUnique({
+      where: {
+        userId_clientId: {
+          userId: user.userId,
+          clientId: valid.client.clientId,
+        },
+      },
+      select: { scopes: true },
+    });
+    const otherResource: OAuthResource =
+      valid.resourceKind === 'MCP' ? 'ACTIVITY_IMPORT' : 'MCP';
+    const grantScopes = [
+      ...scopesFor(existing?.scopes ?? [], otherResource),
+      ...valid.scopes,
+    ];
     await this.prisma.$transaction([
       this.prisma.mcpGrant.upsert({
         where: {
@@ -253,7 +304,7 @@ export class OAuthService {
           userId: user.userId,
           clientId: valid.client.clientId,
         },
-        update: { name: valid.client.name, scopes: valid.scopes },
+        update: { name: valid.client.name, scopes: grantScopes },
       }),
       this.prisma.oAuthAuthorizationCode.create({
         data: {
@@ -375,6 +426,8 @@ export class OAuthService {
     if (params.resource && !sameResource(params.resource, code.resource)) {
       throw new OAuthError('invalid_target', 'The resource does not match');
     }
+    const resourceKind = this.resourceKind(code.resource);
+    if (!resourceKind) throw invalid;
 
     const grant = await this.prisma.mcpGrant.findUnique({
       where: {
@@ -383,7 +436,7 @@ export class OAuthService {
     });
     // The user revoked the access between consent and exchange
     if (!grant) throw invalid;
-    return this.issueTokens(grant.mcpGrantId, code.scopes);
+    return this.issueTokens(grant.mcpGrantId, code.scopes, resourceKind);
   }
 
   private async refresh(
@@ -426,21 +479,23 @@ export class OAuthService {
       throw invalid;
     }
 
-    // A refresh may narrow the scopes, never widen them
-    let scopes = stored.grant.scopes as McpScope[];
+    // A refresh may narrow the scopes, never widen them, and stays on the
+    // token's resource
+    let scopes = scopesFor(stored.grant.scopes, stored.resource);
     if (params.scope) {
-      const asked = parseScopes(params.scope);
+      const asked = parseScopes(params.scope, stored.resource);
       if (!asked || asked.some((scope) => !scopes.includes(scope))) {
         throw new OAuthError('invalid_scope', 'Scopes exceed the grant');
       }
       scopes = asked;
     }
-    return this.issueTokens(stored.grantId, scopes);
+    return this.issueTokens(stored.grantId, scopes, stored.resource);
   }
 
   private async issueTokens(
     grantId: number,
     scopes: string[],
+    resource: OAuthResource,
   ): Promise<TokenResponse> {
     const access = generateToken(TOKEN_PREFIX.access);
     const refresh = generateToken(TOKEN_PREFIX.refresh);
@@ -450,12 +505,14 @@ export class OAuthService {
         {
           tokenHash: hashToken(access),
           type: 'ACCESS',
+          resource,
           grantId,
           expiresAt: new Date(now + ACCESS_TOKEN_TTL_S * 1000),
         },
         {
           tokenHash: hashToken(refresh),
           type: 'REFRESH',
+          resource,
           grantId,
           expiresAt: new Date(now + REFRESH_TOKEN_TTL_MS),
         },

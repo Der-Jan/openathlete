@@ -1,9 +1,12 @@
 import client, { routes } from '@/utils/axios';
+import { getApiBaseUrl } from '@/utils/capacitor';
 
 import {
   AuthResponseDto,
+  EmailLanguage,
   FirebaseLoginDto,
   LoginDto,
+  OidcExchangeDto,
 } from '@openathlete/shared';
 
 export class AuthAPI {
@@ -17,6 +20,27 @@ export class AuthAPI {
   ): Promise<AuthResponseDto> {
     const res = await client.post(routes.auth.firebaseLogin, body);
     return res.data;
+  }
+
+  static async exchangeOidcCode(
+    body: OidcExchangeDto,
+  ): Promise<AuthResponseDto> {
+    const res = await client.post(routes.auth.oidcExchange, body);
+    return res.data;
+  }
+
+  /** Where the browser goes to sign in with the instance's provider */
+  static oidcSignInUrl(params: {
+    invitation?: string;
+    coachInvitation?: string;
+    language?: EmailLanguage;
+  }): string {
+    const query = new URLSearchParams(
+      Object.entries(params).filter(
+        (entry): entry is [string, string] => !!entry[1],
+      ),
+    );
+    return `${getApiBaseUrl()}${routes.auth.oidc}?${query}`;
   }
 
   static async verifyInvitation(token: string): Promise<{

@@ -3,12 +3,15 @@ title: Garmin Personal API
 description: Import your own Garmin Connect activities with a personal API key
 ---
 
-Garmin Personal API is an additional connection in **Settings > Connectors**.
-Each athlete supplies a key for their own Garmin Connect account. It works
-independently of the shared Garmin business connector and requires no instance-wide
-Garmin client ID or secret. Garmin describes Personal API as access to your own
-data; it does not replace the Business API for commercial applications serving
-other Garmin users. See [Garmin's overview](https://developer.garmin.com/gc-developer-program/overview/)
+Garmin Personal API is a **self-hosted personal-use option, off by default**.
+Enable it by setting `GARMIN_PERSONAL_API_ENABLED=true` in the instance environment
+and restarting the API and any separate import worker. It then appears in
+**Settings > Connectors**. Leave it disabled on the hosted service.
+
+Personal keys give access to the key owner's own data, not to instances serving
+other people. They do not replace the Garmin Business API for commercial services.
+The option is independent of the shared Garmin business connector and requires no
+instance-wide Garmin client ID or secret. See [Garmin's overview](https://developer.garmin.com/gc-developer-program/overview/)
 and [Personal API FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/).
 
 ## Connect your account
@@ -83,7 +86,10 @@ provider accounts and activities are not rewritten. Redis and an API worker with
 separate worker container, as described in the [self-hosting guide](/docs/getting-started/self-hosting).
 No Garmin Personal key belongs in a shared `.env` file.
 
-`GET /api/instance` advertises `garminPersonalApi: true` on supporting releases.
+`GET /api/instance` advertises `garminPersonalApi: true` only when
+`GARMIN_PERSONAL_API_ENABLED=true`; otherwise it reports `false` and connection
+endpoints return HTTP 503 with `PROVIDER_NOT_CONFIGURED`. No Personal API queue,
+processor or hourly scheduler is registered while disabled.
 Older servers omit the flag and the new web UI hides the connection. All connection
 endpoints require the current user's JWT; callers cannot supply another athlete ID:
 

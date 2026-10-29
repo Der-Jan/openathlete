@@ -1,4 +1,4 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Controller, Get, Header, Param } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 
 import { OAuthService } from '../auth/oauth.service';
@@ -16,8 +16,13 @@ export class WellKnownController {
 
   @Get(['oauth-protected-resource', 'oauth-protected-resource/*path'])
   @Header('Cache-Control', 'public, max-age=3600')
-  protectedResource() {
-    return this.oauth.resourceMetadata();
+  protectedResource(@Param('path') path?: string | string[]) {
+    // The resource's path follows: activity-import, or api/activity-import
+    // when the API sits under the web app's /api
+    const segments = Array.isArray(path) ? path : (path?.split('/') ?? []);
+    return segments.at(-1) === 'activity-import'
+      ? this.oauth.importResourceMetadata()
+      : this.oauth.resourceMetadata();
   }
 
   @Get(['oauth-authorization-server', 'oauth-authorization-server/*path'])

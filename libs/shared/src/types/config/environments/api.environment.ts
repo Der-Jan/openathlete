@@ -66,6 +66,15 @@ export const ApiEnvSchema = z
       })
       .describe('Secret key used to sign and verify JWT tokens'),
 
+    GARMIN_PERSONAL_API_ENABLED: z
+      .string()
+      .optional()
+      .default('false')
+      .transform((value) => value === 'true')
+      .describe(
+        'Opt in to Garmin Personal API for self-hosted personal use only',
+      ),
+
     // Database
     DATABASE_URL: z
       .string()
@@ -170,6 +179,13 @@ export const ApiEnvSchema = z
       .optional()
       .describe('Suunto subscription key for API access (optional)'),
 
+    SUUNTO_WEBHOOK_SECRET: z
+      .string()
+      .optional()
+      .describe(
+        'Notification secret of the Suunto app, to verify its webhooks (optional)',
+      ),
+
     // Coros OAuth (optional)
     // COROS_CLIENT_ID: z
     //   .string()
@@ -268,6 +284,33 @@ export const ApiEnvSchema = z
         'Sender address of every email, for Brevo and SMTP. Default: BREVO_FROM_EMAIL, else noreply@openathlete.org',
       ),
 
+    // Single sign-on through an OpenID Connect provider (optional)
+    OIDC_ISSUER: z
+      .string()
+      .url('OIDC_ISSUER must be a valid URL')
+      .optional()
+      .describe(
+        'Issuer URL of an OpenID Connect provider (Authentik, Keycloak, Authelia...): with OIDC_CLIENT_ID, adds a sign-in button',
+      ),
+
+    OIDC_CLIENT_ID: z
+      .string()
+      .optional()
+      .describe('Client ID of OpenAthlete at the OpenID Connect provider'),
+
+    OIDC_CLIENT_SECRET: z
+      .string()
+      .optional()
+      .describe(
+        'Client secret, for a confidential client; empty for a public one (PKCE only)',
+      ),
+
+    OIDC_NAME: z
+      .string()
+      .max(40)
+      .optional()
+      .describe('Name on the sign-in button. Default: SSO'),
+
     // Who may create an account
     SIGNUP_MODE: z
       .enum(['open', 'invite', 'closed'])
@@ -328,7 +371,7 @@ export const ApiEnvSchema = z
       .string()
       .optional()
       .describe(
-        'Instance model for every AI feature without its own variable (e.g. openai/gpt-5.1, anthropic/claude-sonnet-4-5)',
+        'Instance model for every AI feature without its own variable (e.g. openai/gpt-5.6-luna, anthropic/claude-haiku-5-5)',
       ),
     AI_MODEL_FEEDBACK_EXTRACTION: z
       .string()

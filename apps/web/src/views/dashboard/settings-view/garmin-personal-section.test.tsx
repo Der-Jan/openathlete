@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GarminPersonalStatus } from '@openathlete/shared';
@@ -109,6 +110,24 @@ describe('Garmin Personal settings', () => {
       { apiKey: 'synthetic-personal-key', activities: false, automatic: false },
       expect.anything(),
     );
+    expect(key().value).toBe('');
+  });
+  it('identifies a rejected key without suggesting an import failure', async () => {
+    api.connect.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: 'key_required' } },
+    });
+    await render();
+    await fill(key(), 'synthetic-personal-key');
+    await act(async () =>
+      element
+        .querySelector('form')!
+        .dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true }),
+        ),
+    );
+    await render();
+    expect(toast.error).toHaveBeenCalledWith('garmin_personal_key_required');
     expect(key().value).toBe('');
   });
   it('clears a draft key when switching users', async () => {

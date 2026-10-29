@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   ApiEnvSchemaType,
   AuthResponseDto,
+  CreateAccountDto,
   FirebaseLoginDto,
   LoginDto,
 } from '@openathlete/shared';
@@ -41,6 +42,17 @@ function deriveNames(params: { name?: string; email: string }): {
   const emailLocalPart = params.email.split('@')[0] || 'Athlete';
   return { firstName: emailLocalPart, lastName: '' };
 }
+
+/** Who a sign-in provider says the user is */
+export type ProviderIdentity = {
+  email: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  invitationToken?: string;
+  coachInvitationToken?: string;
+  language?: CreateAccountDto['language'];
+};
 
 @Injectable()
 export class AuthService {
@@ -120,7 +132,25 @@ export class AuthService {
 
   async loginWithFirebase(body: FirebaseLoginDto): Promise<AuthResponseDto> {
     const verified = await this.firebaseAuthService.verifyIdToken(body.idToken);
-    const email = verified.email.toLowerCase();
+    const user = await this.providerAccount({
+      email: verified.email,
+      name: verified.name,
+      invitationToken: body.invitationToken,
+      coachInvitationToken: body.coachInvitationToken,
+      language: body.language,
+    });
+    return this.sessionFor(user);
+  }
+
+  /**
+   * The account of an address a provider vouched for (Google,
+   * Apple, an OpenID Connect provider), creating it on first sign-in within
+   * the instance's sign-up mode.
+   */
+  async providerAccount(
+    identity: ProviderIdentity,
+  ): Promise<{ userId: number; email: string }> {
+    const email = identity.email.toLowerCase();
 
     let user = await this.prisma.user.findFirst({
       where: { email },
@@ -128,10 +158,9 @@ export class AuthService {
     });
 
     if (!user) {
-      const { firstName, lastName } = deriveNames({
-        name: verified.name,
-        email,
-      });
+      const derived = deriveNames({ name: identity.name, email });
+      const firstName = identity.firstName?.trim() || derived.firstName;
+      const lastName = identity.lastName?.trim() || derived.lastName;
 
       // Create a strong random password (OAuth users won't use it directly).
       const randomPassword = randomUUID();
@@ -142,9 +171,9 @@ export class AuthService {
             password: randomPassword,
             firstName,
             lastName,
-            invitationToken: body.invitationToken,
-            coachInvitationToken: body.coachInvitationToken,
-            language: body.language,
+            invitationToken: identity.invitationToken,
+            coachInvitationToken: identity.coachInvitationToken,
+            language: identity.language,
           },
           { emailFromProvider: true },
         );
@@ -160,6 +189,11 @@ export class AuthService {
       }
     }
 
+    return user;
+  }
+
+  /** The web app's session tokens for a user */
+  sessionFor(user: { userId: number; email: string }): AuthResponseDto {
     return {
       accessToken: this.createToken(user.userId, user.email, false),
       refreshToken: this.createToken(user.userId, user.email, true),

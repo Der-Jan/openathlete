@@ -9,6 +9,16 @@ export const MCP_SCOPES = ['read', 'write'] as const;
 export const mcpScopeSchema = z.enum(MCP_SCOPES);
 export type McpScope = z.infer<typeof mcpScopeSchema>;
 
+/**
+ * What an app connected through OAuth to the activity import API may do:
+ * send activity files to the user's calendar, nothing else.
+ */
+export const IMPORT_SCOPES = ['activities:import'] as const;
+
+/** Every OAuth scope; each belongs to one resource (MCP or import) */
+export const OAUTH_SCOPES = [...MCP_SCOPES, ...IMPORT_SCOPES] as const;
+export type OAuthScope = (typeof OAUTH_SCOPES)[number];
+
 /** Lifetimes offered for a personal token, in days; null never expires */
 export const PERSONAL_TOKEN_LIFETIMES = [30, 90, 365] as const;
 
@@ -33,7 +43,7 @@ export type McpConnection = {
   mcpGrantId: number;
   kind: 'OAUTH' | 'PERSONAL_TOKEN';
   name: string;
-  scopes: McpScope[];
+  scopes: OAuthScope[];
   /** Personal token: its last characters */
   tokenHint: string | null;
   /** OAuth client: its website */
@@ -75,7 +85,7 @@ export type OAuthAuthorizeDetails = {
   logoUri: string | null;
   /** Host the user is sent back to, so they can tell who asks */
   redirectHost: string;
-  scopes: McpScope[];
+  scopes: OAuthScope[];
   /** The client already has access: approving updates it */
   alreadyConnected: boolean;
 };

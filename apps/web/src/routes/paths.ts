@@ -25,6 +25,8 @@ export const paths: Paths = {
     oauth: `${ROOTS.AUTH}/callback/:provider`,
     passwordReset: `${ROOTS.AUTH}/password-reset`,
     passwordResetRequest: `${ROOTS.AUTH}/password-reset-request`,
+    // Back from the instance's OpenID Connect provider
+    sso: `${ROOTS.AUTH}/sso`,
   },
 
   // An AI agent asking for access (MCP)

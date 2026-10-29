@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { Prisma, SportType } from '@openathlete/database';
+import { cycleColorName } from '@openathlete/shared';
 
 import { zonedClock } from 'src/common/utils/time-zone';
 import { accessibleBy } from 'src/modules/auth/services/casl-prisma';
@@ -27,6 +28,7 @@ const periodSchema = z.object({
   kind: z.enum(['training', 'travel', 'illness', 'injury']),
   startDate: z.string(),
   endDate: z.string(),
+  color: z.string().describe('Palette name, or hex when set outside it'),
   description: z.string().optional(),
 });
 
@@ -176,6 +178,7 @@ export const registerCalendarReadTools: ToolRegistrar = (server, ctx, deps) => {
             >['kind'],
             startDate: day(period.startDate),
             endDate: day(period.endDate),
+            color: cycleColorName(period.color),
             ...(period.description && { description: period.description }),
           })),
         };

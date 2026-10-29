@@ -14,6 +14,7 @@ import { ActivityImportProcessor } from './processors/activity-import.processor'
 import { ActivityProcessingProcessor } from './processors/activity-processing.processor';
 import { GarminNotificationProcessor } from './processors/garmin-notification.processor';
 import { ProviderFullImportProcessor } from './processors/provider-full-import.processor';
+import { SuuntoNotificationProcessor } from './processors/suunto-notification.processor';
 import { TrainingLoadEstimationProcessor } from './processors/training-load-estimation.processor';
 import { QueueService } from './queue.service';
 import { RecordsBackfillService } from './services/records-backfill.service';
@@ -123,6 +124,9 @@ function parseRedisUrl(redisUrl: string): {
 
 @Module({
   imports: [
+    ...(process.env.GARMIN_PERSONAL_API_ENABLED === 'true'
+      ? [BullModule.registerQueue({ name: 'garmin-personal-sync' })]
+      : []),
     AiModule,
     ConfigModule,
     EventEmitterModule,
@@ -295,6 +299,23 @@ function parseRedisUrl(redisUrl: string): {
       },
     }),
     BullModule.registerQueue({
+      name: 'suunto-notification',
+      defaultJobOptions: {
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: 30_000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600,
+          count: 5000,
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600,
+        },
+      },
+    }),
+    BullModule.registerQueue({
       name: 'training-load-estimation',
       defaultJobOptions: {
         attempts: 3,
@@ -323,6 +344,7 @@ function parseRedisUrl(redisUrl: string): {
           ActivityImportProcessor,
           ProviderFullImportProcessor,
           GarminNotificationProcessor,
+          SuuntoNotificationProcessor,
         ]
       : []),
     ...(process.env.ENABLE_ACTIVITY_PROCESSING === 'true'
@@ -332,6 +354,6 @@ function parseRedisUrl(redisUrl: string): {
       ? [TrainingLoadEstimationProcessor]
       : []),
   ],
-  exports: [QueueService, TrainingLoadEstimationService],
+  exports: [QueueService, TrainingLoadEstimationService, BullModule],
 })
 export class QueueModule {}

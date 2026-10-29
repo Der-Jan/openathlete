@@ -564,7 +564,6 @@ export interface SuuntoWorkoutResponse {
 export interface SuuntoWebhookPayload {
   type: string; // e.g., "WORKOUT_CREATED", "SUUNTO_247_ACTIVITY_CREATED", "SUUNTO_247_SLEEP_CREATED", "SUUNTO_247_RECOVERY_CREATED"
   username?: string; // Suunto username
-  userId?: string; // Alternative user identifier
   workout?: {
     workoutKey: string;
     activityId?: number;
@@ -574,6 +573,7 @@ export interface SuuntoWebhookPayload {
     [key: string]: unknown;
   };
   workoutKey?: string; // Fallback: workoutKey can also be at root level
+  workoutid?: string; // Legacy form-encoded notifications
   timestamp?: number;
   // 247 Data API webhook payloads
   samples?: Array<

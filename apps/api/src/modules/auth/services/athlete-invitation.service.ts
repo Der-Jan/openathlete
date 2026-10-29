@@ -19,6 +19,17 @@ import { SendEmailEvent } from 'src/events';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 import { FeatureAccessService } from 'src/modules/subscription';
 
+/**
+ * Invitations the athlete can still answer. One sent before the account
+ * existed has no status: the link accepts it on sign-up, and an athlete who
+ * signed up without the link (from the app stores, say) answers it in the
+ * app like any other.
+ */
+const OPEN_STATUSES = [{ status: InvitationStatus.PENDING }, { status: null }];
+
+const isOpen = (status: InvitationStatus | null) =>
+  status === null || status === InvitationStatus.PENDING;
+
 @Injectable()
 export class AthleteInvitationService {
   constructor(
@@ -84,7 +95,7 @@ export class AthleteInvitationService {
             where: {
               email: normalizedEmail,
               userId: coachUserId,
-              status: InvitationStatus.PENDING,
+              OR: OPEN_STATUSES,
             },
           });
 
@@ -307,7 +318,7 @@ export class AthleteInvitationService {
       throw new BadRequestException('This invitation is not for you');
     }
 
-    if (invitation.status !== InvitationStatus.PENDING) {
+    if (!isOpen(invitation.status)) {
       throw new BadRequestException('This invitation is no longer pending');
     }
 
@@ -321,22 +332,24 @@ export class AthleteInvitationService {
       );
     }
 
-    // Create coach-athlete link
-    await this.prisma.coachAthlete.create({
-      data: {
-        athleteId: athlete.athleteId,
-        userId: invitation.userId,
-      },
-    });
-
-    // Update invitation status to ACCEPTED
-    await this.prisma.athleteInvitation.update({
-      where: {
-        athleteInvitationId: invitation.athleteInvitationId,
-      },
-      data: {
-        status: InvitationStatus.ACCEPTED,
-      },
+    // Accept and link together: a double click links the coach once
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.athleteInvitation.updateMany({
+        where: {
+          athleteInvitationId: invitation.athleteInvitationId,
+          OR: OPEN_STATUSES,
+        },
+        data: { status: InvitationStatus.ACCEPTED },
+      });
+      if (claimed.count !== 1) {
+        throw new BadRequestException('This invitation is no longer pending');
+      }
+      await tx.coachAthlete.create({
+        data: {
+          athleteId: athlete.athleteId,
+          userId: invitation.userId,
+        },
+      });
     });
   }
 
@@ -363,7 +376,7 @@ export class AthleteInvitationService {
       throw new BadRequestException('This invitation is not for you');
     }
 
-    if (invitation.status !== InvitationStatus.PENDING) {
+    if (!isOpen(invitation.status)) {
       throw new BadRequestException('This invitation is no longer pending');
     }
 
@@ -391,7 +404,7 @@ export class AthleteInvitationService {
     return await this.prisma.athleteInvitation.findMany({
       where: {
         email: athlete.user.email.toLowerCase(),
-        status: InvitationStatus.PENDING,
+        OR: OPEN_STATUSES,
       },
       include: {
         user: {
@@ -413,7 +426,7 @@ export class AthleteInvitationService {
     return await this.prisma.athleteInvitation.findMany({
       where: {
         userId: coachUserId,
-        OR: [{ status: InvitationStatus.PENDING }, { status: null }],
+        OR: OPEN_STATUSES,
       },
       orderBy: {
         createdAt: 'desc',
@@ -430,7 +443,7 @@ export class AthleteInvitationService {
       throw new NotFoundException('Invitation not found');
     }
 
-    if (invitation.status && invitation.status !== InvitationStatus.PENDING) {
+    if (!isOpen(invitation.status)) {
       throw new BadRequestException(
         'This invitation can no longer be cancelled',
       );
