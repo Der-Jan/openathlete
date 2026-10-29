@@ -6,6 +6,7 @@ import { ActivityEvent, ActivityStream } from '@openathlete/shared';
 
 import { ActivityStreamsChart } from '../../activity-analysis/activity-streams-chart';
 import { AiSummaryCard } from '../../activity-analysis/ai-summary-card';
+import { CorrectionsCard } from '../../activity-analysis/corrections-card';
 import { DecouplingCard } from '../../activity-analysis/decoupling-card';
 import { availableLapSources, climbsOf } from '../../activity-analysis/laps';
 import { LapsCard } from '../../activity-analysis/laps-card';
@@ -148,6 +149,10 @@ export function ActivityDetailsOverviewTab({
           athleteId={event.athleteId ?? undefined}
           startDate={new Date(event.startDate)}
         />
+      )}
+      {/* Its athlete or their coaches, the only ones who see it, can fix it */}
+      {!!stream?.time?.length && (
+        <CorrectionsCard event={event} stream={stream} />
       )}
     </>
   );

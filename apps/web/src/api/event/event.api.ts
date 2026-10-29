@@ -1,6 +1,7 @@
 import client, { routes } from '@/utils/axios';
 
 import {
+  ActivityCorrection,
   ActivityStream,
   CreateEventDto,
   DuplicateEventDto,
@@ -94,6 +95,36 @@ export class EventAPI {
     });
     const data = res.data as Event[];
     return data.map((event) => mapEvent(event));
+  }
+
+  /** Applies a correction over the activity's recording, returns it */
+  static async addActivityCorrection({
+    eventId,
+    correction,
+  }: {
+    eventId: Event['eventId'];
+    correction: ActivityCorrection;
+  }): Promise<Event> {
+    const res = await client.post(
+      routes.event.activityCorrections(eventId),
+      correction,
+    );
+    return mapEvent(res.data);
+  }
+
+  /** Undoes one correction, or all of them without an index */
+  static async removeActivityCorrection({
+    eventId,
+    index,
+  }: {
+    eventId: Event['eventId'];
+    index?: number;
+  }): Promise<Event> {
+    const base = routes.event.activityCorrections(eventId);
+    const res = await client.delete(
+      index === undefined ? base : `${base}/${index}`,
+    );
+    return mapEvent(res.data);
   }
 
   static async getEvent(eventId: Event['eventId']): Promise<Event> {

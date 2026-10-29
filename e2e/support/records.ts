@@ -29,6 +29,7 @@ export async function importRunWithRecords(
     },
   });
   expect(response.status(), await response.text()).toBe(201);
+  const imported = (await response.json()) as { eventId: number };
 
   // The processing pipeline computes them in the background
   await expect
@@ -42,4 +43,5 @@ export async function importRunWithRecords(
       { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
+  return imported;
 }
