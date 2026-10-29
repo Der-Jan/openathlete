@@ -22,6 +22,9 @@ import { ProviderFullImportJobData } from '../queue.service';
  */
 @Processor('provider-full-import', {
   concurrency: 2,
+  // Spread out the history requests: Garmin answers 429 to a burst, such as
+  // the backfill of every account at once (openathlete garmin-backfill)
+  limiter: { max: 10, duration: 60_000 },
 })
 export class ProviderFullImportProcessor extends WorkerHost {
   private readonly logger = new Logger(ProviderFullImportProcessor.name);
