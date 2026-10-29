@@ -1,3 +1,6 @@
+import { Queue } from 'bullmq';
+import Redis from 'ioredis';
+
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -34,13 +37,13 @@ async function main() {
     // Startup notices ("billing is disabled"...) would mix with the output
     logger: ['error'],
   });
+  const config = app.get<ConfigService<ApiEnvSchemaType, true>>(ConfigService);
   const deps: CliDeps = {
     prisma: app.get(PrismaService),
     tokens: app.get(TokenService),
     accountDeletion: app.get(AccountDeletionService),
-    appUrl: app
-      .get<ConfigService<ApiEnvSchemaType, true>>(ConfigService)
-      .get('APP_URL'),
+    appUrl: config.get('APP_URL'),
+    queueFullImports: (ids) => queueFullImports(config.get('REDIS_URL'), ids),
   };
   try {
     process.exitCode = await runCommand(process.argv.slice(2), deps, (line) =>
@@ -48,6 +51,32 @@ async function main() {
     );
   } finally {
     await app.close();
+  }
+}
+
+/** Same jobs as QueueService.addFullImportJob, run by the worker */
+async function queueFullImports(
+  redisUrl: string | undefined,
+  providerAccountIds: number[],
+) {
+  const connection = redisUrl
+    ? new Redis(redisUrl, { maxRetriesPerRequest: null })
+    : new Redis({ maxRetriesPerRequest: null });
+  const queue = new Queue('provider-full-import', { connection });
+  try {
+    for (const providerAccountId of providerAccountIds) {
+      const jobId = `full-import-${providerAccountId}`;
+      const existing = await queue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state !== 'completed' && state !== 'failed') continue;
+        await existing.remove();
+      }
+      await queue.add('full-import', { providerAccountId }, { jobId });
+    }
+  } finally {
+    await queue.close();
+    await connection.quit();
   }
 }
 
