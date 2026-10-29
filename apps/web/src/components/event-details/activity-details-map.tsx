@@ -1,3 +1,4 @@
+import { xSeries } from '../activity-analysis/stream-range';
 import { Map } from '../map/map';
 import { useActivityDetailsSelection } from './activity-details-selection-context';
 
@@ -16,11 +17,11 @@ export function ActivityDetailsMap({
   distance,
   time,
 }: P) {
-  const { domain } = useActivityDetailsSelection();
+  const { domain, xAxis } = useActivityDetailsSelection();
   let focusPolyline: number[][] | undefined = undefined;
   if (domain && polyline?.length) {
     const [from, to] = domain;
-    const series = distance?.length ? distance : time;
+    const series = xSeries({ distance, time }, xAxis);
     if (series?.length) {
       // lower bound for from
       let lo = 0;
