@@ -141,6 +141,8 @@ export function ActivityDetailsOverviewTab({
         <ActivityRecordsCharts
           records={event.records as ChartRecord[]}
           sport={event.sport}
+          athleteId={event.athleteId ?? undefined}
+          startDate={new Date(event.startDate)}
         />
       )}
     </>
