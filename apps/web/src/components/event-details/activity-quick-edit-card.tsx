@@ -173,8 +173,8 @@ export function ActivityQuickEditCard({
             <div className="space-y-4 flex-1 flex flex-col">
               <RHFTextarea
                 name="description"
-                label={m.comment()}
-                placeholder={m.description()}
+                label={m.description()}
+                placeholder={m.activity_description_placeholder()}
                 rows={3}
                 className="min-h-[70px]"
               />

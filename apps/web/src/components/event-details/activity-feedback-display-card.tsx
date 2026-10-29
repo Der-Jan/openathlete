@@ -82,7 +82,7 @@ export function ActivityFeedbackDisplayCard({ event }: P) {
           )}
           {event.description && event.description.trim() !== '' && (
             <div className="space-y-2 pt-4 border-t">
-              <p className="text-sm font-medium">{m.comment()}</p>
+              <p className="text-sm font-medium">{m.description()}</p>
               <p className="text-sm text-muted-foreground">
                 {event.description}
               </p>
