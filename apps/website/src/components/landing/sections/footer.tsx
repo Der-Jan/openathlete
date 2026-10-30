@@ -2,7 +2,7 @@
 
 import { BrandLogo } from '@/components/landing/brand-logo';
 import { Container } from '@/components/landing/container';
-import { APP_URL } from '@/config';
+import { APP_URL, BUY_ME_A_COFFEE_URL } from '@/config';
 import { m } from '@/paraglide/messages';
 import { getLocale } from '@/paraglide/runtime';
 import { DEFAULT_LOCALE, isSupportedLocale } from '@/utils/locales';
@@ -118,6 +118,16 @@ export function Footer() {
                   className="text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Documentation
+                </a>
+              </li>
+              <li>
+                <a
+                  href={BUY_ME_A_COFFEE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {m.buy_me_a_coffee()}
                 </a>
               </li>
             </ul>

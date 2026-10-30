@@ -75,11 +75,14 @@ const contextOutput = z.object({
   ),
   form: z
     .object({
-      fitness: z.number().describe('CTL, 42-day load average'),
-      fatigue: z.number().describe('ATL, 7-day load average'),
+      fitness: z
+        .number()
+        .describe('CTL, load decayed over a 42-day time constant'),
+      fatigue: z
+        .number()
+        .describe('ATL, load decayed over a 7-day time constant'),
       form: z.number().describe('TSB = fitness - fatigue'),
       status: z.string(),
-      acuteChronicRatio: z.number().optional(),
       recommendedWeeklyLoad: z.object({ min: z.number(), max: z.number() }),
     })
     .optional(),
@@ -294,9 +297,6 @@ export const registerAthleteTools: ToolRegistrar = (server, ctx, deps) => {
                 fatigue: round(form.atl, 1),
                 form: round(form.tsb, 1),
                 status: form.status,
-                ...(form.acwr !== null && {
-                  acuteChronicRatio: round(form.acwr, 2),
-                }),
                 recommendedWeeklyLoad: {
                   min: round(form.recommendedLoadRange.min),
                   max: round(form.recommendedLoadRange.max),

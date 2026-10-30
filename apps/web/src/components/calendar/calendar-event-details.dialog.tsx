@@ -1,19 +1,15 @@
 import { useGetMyAthleteQuery } from '@/api/athlete';
 import { m } from '@/paraglide/messages';
-import { getConnectorProviderActivityLink } from '@/utils/connector-provider';
-import {
-  connectorProviderLabelMap,
-  eventTypeLabelMap,
-} from '@/utils/label-map/core';
+import { activityPath } from '@/routes/paths';
 import { cn } from '@/utils/shadcn';
-import { Trophy } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { EVENT_TYPE, Event } from '@openathlete/shared';
 
 import { ActivityValidationAlert } from '../activity-validation-alert';
 import { EventDetails } from '../event-details/event-details';
-import { SportIcon } from '../sport-icon/sport-icon';
-import { Badge } from '../ui/badge';
+import { EventHeading } from '../event-details/event-heading';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useCalendarContext } from './hooks/use-calendar-context';
@@ -45,64 +41,21 @@ export function CalendarEventDetailsDialog({
       >
         <DialogHeader>
           <DialogTitle className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-2">
-            <div className="flex flex-wrap items-center gap-2 grow text-sm md:text-base">
-              {event?.type !== EVENT_TYPE.NOTE && event?.sport && (
-                <SportIcon sport={event.sport} />
-              )}
-              <span className="break-words">{event?.name}</span>
-              {event && (
-                <Badge className="text-xs">
-                  {eventTypeLabelMap[event.type]}
-                </Badge>
-              )}
-              {event?.type === EVENT_TYPE.ACTIVITY && event.isRace && (
-                <Badge variant="outline" className="text-xs" data-race-badge>
-                  <Trophy className="h-3 w-3" />
-                  {m.activity_race_badge()}
-                </Badge>
-              )}
-              {event?.type === EVENT_TYPE.ACTIVITY &&
-                !event.provider &&
-                event.externalId?.startsWith('fit-manual:') && (
-                  <Badge variant="outline">{m.fit_import_source()}</Badge>
-                )}
-              {event?.type === EVENT_TYPE.ACTIVITY &&
-                !event.provider &&
-                event.externalId?.startsWith('gpx-manual:') && (
-                  <Badge variant="outline">{m.gpx_import_source()}</Badge>
-                )}
-              {event?.type === EVENT_TYPE.ACTIVITY &&
-                !event.provider &&
-                event.externalId?.startsWith('tcx-manual:') && (
-                  <Badge variant="outline">{m.tcx_import_source()}</Badge>
-                )}
-              {event &&
-                event.type === EVENT_TYPE.ACTIVITY &&
-                event.externalId &&
-                event.provider &&
-                getConnectorProviderActivityLink(
-                  event.provider,
-                  event.externalId,
-                ) && (
-                  <Badge
-                    variant="outline"
-                    className="cursor-pointer hover:underline text-xs"
-                    onClick={() => {
-                      const link = getConnectorProviderActivityLink(
-                        event.provider!,
-                        event.externalId,
-                      );
-                      if (!link) return;
-                      window.open(link, '_blank');
-                    }}
-                  >
-                    {m.imported_from({
-                      provider: connectorProviderLabelMap[event.provider],
-                    })}
-                  </Badge>
-                )}
-            </div>
+            {event && <EventHeading event={event} />}
             <div className="flex items-center gap-2 md:pr-4 md:-translate-y-4 w-full md:w-auto mt-2 md:mt-0">
+              {event?.type === EVENT_TYPE.ACTIVITY && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="w-full md:w-auto text-xs md:text-sm"
+                >
+                  <Link to={activityPath(event.eventId)}>
+                    <Maximize2 className="size-4" />
+                    {m.activity_open_page()}
+                  </Link>
+                </Button>
+              )}
               <Button
                 onClick={onEditEvent}
                 variant="outline"

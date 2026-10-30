@@ -1,8 +1,16 @@
 import { useGetMyAthleteQuery } from '@/api/athlete';
+import { TrainingZoneAPI } from '@/api/training-zone/training-zone.api';
+import { trainingZoneKeys } from '@/api/training-zone/training-zone.keys';
 import { m } from '@/paraglide/messages';
+import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { SPORT_TYPE, TRAINING_ZONE_TYPE } from '@openathlete/shared';
+import {
+  SPORT_TYPE,
+  TRAINING_ZONE_TYPE,
+  TrainingZone,
+  TrainingZoneValue,
+} from '@openathlete/shared';
 
 const DEFAULT_TRAINING_ZONES = [
   {
@@ -47,15 +55,32 @@ const DEFAULT_TRAINING_ZONES = [
   },
 ];
 
-export function useTrainingZones(type: TRAINING_ZONE_TYPE, sport?: SPORT_TYPE) {
+/**
+ * The zones of a type and sport: the athlete's whose data is shown when
+ * `athleteId` is given (a coach reading an athlete's activity), else the
+ * signed-in athlete's; default heart rate zones when there are none.
+ */
+export function useTrainingZones(
+  type: TRAINING_ZONE_TYPE,
+  sport?: SPORT_TYPE,
+  athleteId?: number,
+) {
   const { data: athlete } = useGetMyAthleteQuery();
+  const forOther = athleteId !== undefined && athlete?.athleteId !== athleteId;
+  const { data: otherZones } = useQuery({
+    queryKey: [trainingZoneKeys.getAllForAthlete, athleteId],
+    queryFn: (): Promise<(TrainingZone & { values: TrainingZoneValue[] })[]> =>
+      TrainingZoneAPI.getAllForAthlete(athleteId!),
+    enabled: forOther,
+  });
+  const zones = forOther ? otherZones : athlete?.trainingZones;
 
   const trainingZones = useMemo(
     () =>
-      athlete?.trainingZones
-        .filter((zone) => zone.type === type)
+      zones
+        ?.filter((zone) => zone.type === type)
         .sort((a, b) => a.index - b.index),
-    [athlete, type],
+    [zones, type],
   );
 
   const finalTrainingZones = useMemo(() => {
@@ -82,27 +107,30 @@ export function useTrainingZones(type: TRAINING_ZONE_TYPE, sport?: SPORT_TYPE) {
     });
   }, [trainingZones, sport]);
 
-  const filteredTrainingZones = finalTrainingZones
-    ?.filter((zone) => zone !== null)
-    .map((zone) => zone as Exclude<typeof zone, null>);
+  // Stable between renders: callers memoise what they compute from it
+  return useMemo(() => {
+    const filteredTrainingZones = finalTrainingZones
+      ?.filter((zone) => zone !== null)
+      .map((zone) => zone as Exclude<typeof zone, null>);
 
-  if (!filteredTrainingZones || filteredTrainingZones.length === 0) {
-    const defaultZones = DEFAULT_TRAINING_ZONES.find(
-      (zone) => zone.type === type,
-    )?.values;
-    if (defaultZones) {
-      // Add temporary IDs for default zones (negative IDs to avoid conflicts)
-      return defaultZones.map((zone, index) => ({
-        id: -(index + 1), // Negative IDs for default zones
-        name: zone.name,
-        description: zone.description,
-        color: zone.color,
-        min: zone.min,
-        max: zone.max,
-      }));
+    if (!filteredTrainingZones || filteredTrainingZones.length === 0) {
+      const defaultZones = DEFAULT_TRAINING_ZONES.find(
+        (zone) => zone.type === type,
+      )?.values;
+      if (defaultZones) {
+        // Add temporary IDs for default zones (negative IDs to avoid conflicts)
+        return defaultZones.map((zone, index) => ({
+          id: -(index + 1), // Negative IDs for default zones
+          name: zone.name,
+          description: zone.description,
+          color: zone.color,
+          min: zone.min,
+          max: zone.max,
+        }));
+      }
+      return [];
     }
-    return [];
-  }
 
-  return filteredTrainingZones;
+    return filteredTrainingZones;
+  }, [finalTrainingZones, type]);
 }

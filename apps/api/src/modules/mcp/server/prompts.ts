@@ -68,11 +68,11 @@ Goal: ${goal}${raceDate ? `\nRace date: ${raceDate}` : ''}${hoursPerWeek ? `\nTi
 
 Method:
 1. get_athlete_context, then get_training_volume and get_activities over the last 12 weeks, get_training_load, get_records for the main sport, and get_calendar for the weeks to plan (keep what is already there).
-2. Start from the volume really done, not the time available. Raise the weekly load by 5-10% at most, with a lighter week (-30 to -40%) every third or fourth week.
+2. Start from the volume really done, not the time available. Raise the weekly load gradually, with a lighter week (-30 to -40%) every third or fourth week.
 3. Periodize up to the goal: base, build, specific, then a taper of 1 to 3 weeks depending on the distance. Keep about 80% of the time easy.
 4. Key sessions (intervals, tempo, long run or ride) get structured workouts with the athlete's zones or paces from their records and metrics. Easy sessions only need a duration and a zone.
 5. Respect periods without training, and keep any A race the focus; B and C races replace a key session.
-6. Aim for a form (TSB) of +5 to +15 on race day.
+6. In the taper, cut the volume by 40 to 60% and keep the intensity.
 
 ${apply} Answer in my language.`),
   );

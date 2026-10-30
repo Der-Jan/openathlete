@@ -4,7 +4,7 @@ import { Container } from '@/components/landing/container';
 import { LandingSectionHeader } from '@/components/landing/landing-canvas';
 import { PricingCard } from '@/components/landing/pricing-card';
 import { Section } from '@/components/landing/section';
-import { APP_URL } from '@/config';
+import { APP_URL, BUY_ME_A_COFFEE_URL } from '@/config';
 import { m } from '@/paraglide/messages';
 import { cn } from '@/utils/shadcn';
 
@@ -82,6 +82,18 @@ export function Pricing() {
             ctaHref={supporterUrl}
           />
         </div>
+
+        <p className="mt-8 text-center text-sm text-muted-foreground">
+          {m.landing_pricing_coffee_prompt()}{' '}
+          <a
+            href={BUY_ME_A_COFFEE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+          >
+            {m.landing_pricing_coffee_link()}
+          </a>
+        </p>
       </Container>
     </Section>
   );

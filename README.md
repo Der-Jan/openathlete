@@ -35,6 +35,7 @@
    <a href="https://api.openathlete.org/docs"><img src="https://img.shields.io/badge/API-Swagger-green" alt="API Docs"></a>
    <a href="https://docs.openathlete.org"><img src="https://img.shields.io/badge/Docs-Online-brightgreen" alt="Documentation"></a>
    <a href="https://discord.gg/j4PP6tDwuP"><img src="https://img.shields.io/badge/Discord-Community-5865F2" alt="Discord"></a>
+   <a href="https://buymeacoffee.com/openathlete"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
    <a href="https://github.com/openathleteorg/openathlete/issues?q=is:issue+is:open+label:%22help+wanted%22"><img src="https://img.shields.io/badge/Help%20Wanted-Contribute-blue"></a>
    <a href="https://github.com/openathleteorg/openathlete/issues?q=is:issue+is:open+label:%22good+first+issue%22"><img src="https://img.shields.io/badge/Good%20First%20Issue-Start%20Here-green"></a>
 </p>
@@ -340,7 +341,7 @@ For a complete list of environment variables, see the `.env.example` files in ea
 > OpenAthlete is built by one developer in Grenoble, supported by the community. There are three ways to help the project thrive:
 >
 > - **Become a Supporter on OpenAthlete Cloud** — The Cloud is free; the Supporter subscription (5€/month or 50€/year) funds development and adds unlimited coached athletes and AI included every month. See [openathlete.org](https://openathlete.org).
-> - **Become a Patreon supporter** — Recurring support without using the cloud. [patreon.com/OpenAthlete](https://patreon.com/OpenAthlete).
+> - **Buy me a coffee** — One-off support without using the cloud. [buymeacoffee.com/openathlete](https://buymeacoffee.com/openathlete).
 > - **Contribute code or feedback** — Star the repo, open issues, send PRs, join the [Discord](https://discord.gg/j4PP6tDwuP).
 >
 > Self-hosting is fully supported and always free, with no limits. Supporters fund the project's long-term sustainability.
@@ -413,4 +414,8 @@ Special thanks to these amazing projects which help power OpenAthlete:
 
 <p align="center">
   Made with ❤️ by athletes, for athletes
+</p>
+
+<p align="center">
+  If you self-host OpenAthlete, a <a href="https://buymeacoffee.com/openathlete">coffee</a> helps keep it maintained.
 </p>

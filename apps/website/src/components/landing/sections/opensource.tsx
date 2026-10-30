@@ -4,8 +4,9 @@ import { Container } from '@/components/landing/container';
 import { LandingSectionHeader } from '@/components/landing/landing-canvas';
 import { Section } from '@/components/landing/section';
 import { Button } from '@/components/ui/button';
+import { BUY_ME_A_COFFEE_URL } from '@/config';
 import { m } from '@/paraglide/messages';
-import { Check } from 'lucide-react';
+import { Check, Coffee } from 'lucide-react';
 
 const GITHUB_REPO_URL = 'https://github.com/openathleteorg/openathlete';
 
@@ -46,6 +47,29 @@ export function OpenSource() {
               ))}
             </ul>
           </div>
+        </div>
+
+        <div className="mx-auto mt-8 flex max-w-xl flex-col items-center gap-4 rounded-2xl border border-border/50 bg-card/40 p-5 text-center sm:flex-row sm:text-left dark:bg-card/20">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15">
+            <Coffee className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="flex-1">
+            <p className="font-medium text-foreground">
+              {m.landing_indie_title()}
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              {m.landing_indie_text()}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" className="shrink-0" asChild>
+            <a
+              href={BUY_ME_A_COFFEE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {m.buy_me_a_coffee()}
+            </a>
+          </Button>
         </div>
 
         <div className="mt-12 text-center">

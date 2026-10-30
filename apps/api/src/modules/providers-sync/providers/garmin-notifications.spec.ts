@@ -101,7 +101,7 @@ describe('GarminProviderService.processNotification', () => {
 
   beforeEach(() => mockedGet.mockReset());
 
-  it('pulls the callback with its own token, so Garmin ties it to the ping', async () => {
+  it('pulls the callback as Garmin built it, with the access token', async () => {
     const { service, prisma } = setup([account]);
     mockedGet.mockResolvedValue({
       data: [{ summaryId: 'd', calendarDate: '2026-10-27', steps: 1000 }],
@@ -121,8 +121,32 @@ describe('GarminProviderService.processNotification', () => {
     expect(mockedGet).toHaveBeenCalledTimes(1);
     const [url, options] = mockedGet.mock.calls[0];
     expect(url).toContain('token=abc');
-    expect(options.headers).toEqual({});
+    expect(options.headers).toEqual({ Authorization: 'Bearer access' });
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('fails the job when Garmin refuses the pull, instead of dropping the data', async () => {
+    const { service, prisma } = setup([account]);
+    mockedGet.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 400'), {
+        isAxiosError: true,
+        response: { status: 400, data: { errorMessage: 'bad request' } },
+      }),
+    );
+
+    await expect(
+      service.processNotification(
+        {
+          summaryType: 'activities',
+          userId: 'u1',
+          callbackURL:
+            'https://apis.garmin.com/wellness-api/rest/activities?token=abc',
+          entry: {},
+        },
+        { lastAttempt: false },
+      ),
+    ).rejects.toThrow('status code 400');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('answers pings of unknown users without saving anything', async () => {
@@ -158,5 +182,39 @@ describe('GarminProviderService.processNotification', () => {
       ),
     ).rejects.toThrow('Invalid Garmin callbackURL');
     expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it('advances past a conflicting window when Garmin answers 409', async () => {
+    const conflictStart = new Date(Date.now() - 33 * 24 * 3600 * 1000);
+    const conflictEnd = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    const garminAccount = {
+      ...account,
+      scopes: 'permissions:ACTIVITY_EXPORT',
+    } as unknown as ProviderAccount;
+    const { service } = setup([garminAccount]);
+
+    mockedGet
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Conflict'), {
+          isAxiosError: true,
+          response: {
+            status: 409,
+            data: {
+              errorMessage: `[1cf00fd8-6c33-4b7f-8e81-4991aa8473bb]duplicate backfill processed at ${conflictEnd.toISOString()} [${conflictStart.toISOString()} to ${conflictEnd.toISOString()}]`,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce({ status: 202, data: '' });
+
+    await expect(service.queueFullImport(garminAccount)).resolves.toEqual({
+      queuedActivities: 0,
+      backfillRequested: true,
+    });
+
+    expect(mockedGet).toHaveBeenCalledTimes(2);
+    expect(mockedGet.mock.calls[1][1].params.summaryStartTimeInSeconds).toBe(
+      Math.floor(conflictEnd.getTime() / 1000),
+    );
   });
 });

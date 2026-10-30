@@ -17,9 +17,6 @@ describe('coach dashboard', () => {
     expect(alertText({ type: 'pain', location: 'knee', painScore: 6.25 })).toBe(
       'coach_alert_pain{"location":"knee","score":6.3}',
     );
-    expect(alertText({ type: 'load_spike', acwr: 1.83 })).toBe(
-      'coach_alert_load_spike{"ratio":"1.8"}',
-    );
     expect(alertText({ type: 'inactive', days: 12 })).toBe(
       'coach_alert_inactive{"days":12}',
     );

@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatSpeed,
   formatSpeedUnit,
+  isPaceUnit,
 } from '@openathlete/shared';
 
 export type ChartRecord = Pick<
@@ -30,14 +31,13 @@ export interface RecordMetric {
 
 const speedUnit = (sport: SPORT_TYPE): SpeedUnit =>
   SPORT_CONFIG[sport]?.speedUnit ?? 'km/h';
-const isPace = (unit: SpeedUnit) => unit === 'min/km' || unit === 'min/mi';
 
 export const RECORD_METRICS: RecordMetric[] = [
   {
     type: RECORD_TYPE.SPEED,
     axis: 'distance',
     // Pace sports read the time per kilometre, others the speed
-    title: (sport) => (isPace(speedUnit(sport)) ? m.pace() : m.speed()),
+    title: (sport) => (isPaceUnit(speedUnit(sport)) ? m.pace() : m.speed()),
     unit: (sport) => formatSpeedUnit(speedUnit(sport)),
     // Speeds are plotted in m/s and written in the sport's unit
     plotted: (record) => (record.distance ?? 0) / record.value,

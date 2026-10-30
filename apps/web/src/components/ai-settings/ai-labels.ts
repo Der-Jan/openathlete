@@ -16,6 +16,8 @@ export function aiTaskLabel(task: AiTask): string {
       return m.ai_task_feedback_extraction();
     case AiTask.TRAINING_LOAD_ESTIMATION:
       return m.ai_task_training_load_estimation();
+    case AiTask.ACTIVITY_SUMMARY:
+      return m.ai_task_activity_summary();
   }
 }
 

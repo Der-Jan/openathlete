@@ -41,6 +41,7 @@ function access(overrides: Partial<AiAccessDto> = {}): AiAccessDto {
       [AiTask.POST_ACTIVITY_QUESTIONS]: unavailable,
       [AiTask.FEEDBACK_EXTRACTION]: unavailable,
       [AiTask.TRAINING_LOAD_ESTIMATION]: unavailable,
+      [AiTask.ACTIVITY_SUMMARY]: unavailable,
     },
     hostedAccess: true,
     upgradeUnlocksHosted: false,

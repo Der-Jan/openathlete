@@ -32,6 +32,7 @@ import { Throttle } from '@nestjs/throttler';
 
 import { Event } from '@openathlete/database';
 import {
+  ActivityCorrection,
   ActivityStream,
   CreateEventDto,
   DuplicateEventDto,
@@ -42,6 +43,7 @@ import {
   SeasonEvent,
   ShiftEventsDto,
   UpdateEventDto,
+  activityCorrectionSchema,
   createEventDtoSchema,
   duplicateEventDtoSchema,
   duplicateWorkoutSchema,
@@ -56,6 +58,7 @@ import { JwtUser, UserTypeGuard } from 'src/modules/auth';
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
 
 import { EventService } from '../services';
+import { ActivityCorrectionsService } from '../services/activity-corrections.service';
 import { ActivityFeedbackService } from '../services/activity-feedback.service';
 import { CalendarFeedService } from '../services/calendar-feed.service';
 import { EventBulkService } from '../services/event-bulk.service';
@@ -72,6 +75,7 @@ export class EventController {
     private eventBulkService: EventBulkService,
     private eventSeriesService: EventSeriesService,
     private manualActivityService: ManualActivityService,
+    private activityCorrectionsService: ActivityCorrectionsService,
   ) {}
 
   @Get('ical')
@@ -1278,6 +1282,74 @@ export class EventController {
     @Param('eventId', ParseIntPipe) eventId: Event['eventId'],
   ) {
     return this.eventService.unsetRelatedActivity(user, eventId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
+  @Post(':eventId/activity/corrections')
+  @ApiOperation({
+    summary: "Correct an activity's recording",
+    description:
+      "Applies a correction over the activity's recording: spikes of heart rate or power, a crop to a part (seconds from the start as previous corrections left it), or smoothed altitude. The recording as it came is kept from the first correction, so corrections can be undone. Totals are recomputed and the activity is processed again (records, pace, load) without the AI. Returns the activity.",
+  })
+  @ApiParam({ name: 'eventId', type: Number, example: 1 })
+  @ApiResponse({ status: 201, description: 'Correction applied' })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid correction' })
+  @ApiResponse({
+    status: 404,
+    description: 'Not found - no activity with a recording the user can edit',
+  })
+  addActivityCorrection(
+    @JwtUser() user: AuthUser,
+    @Param('eventId', ParseIntPipe) eventId: Event['eventId'],
+    @Body(new ZodValidationPipe(activityCorrectionSchema))
+    correction: ActivityCorrection,
+  ) {
+    return this.activityCorrectionsService.add(user, eventId, correction);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
+  @Delete(':eventId/activity/corrections')
+  @ApiOperation({
+    summary: 'Restore the recording as it came',
+    description:
+      'Undoes every correction of the activity: its original recording, totals, dates and laps come back. Returns the activity.',
+  })
+  @ApiParam({ name: 'eventId', type: Number, example: 1 })
+  @ApiResponse({ status: 200, description: 'Original recording restored' })
+  @ApiResponse({
+    status: 404,
+    description: 'Not found - no activity with a recording the user can edit',
+  })
+  removeActivityCorrections(
+    @JwtUser() user: AuthUser,
+    @Param('eventId', ParseIntPipe) eventId: Event['eventId'],
+  ) {
+    return this.activityCorrectionsService.remove(user, eventId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
+  @Delete(':eventId/activity/corrections/:index')
+  @ApiOperation({
+    summary: 'Undo one correction',
+    description:
+      "Removes one correction, by its position in the activity's list, and applies the others again over the original recording. Returns the activity.",
+  })
+  @ApiParam({ name: 'eventId', type: Number, example: 1 })
+  @ApiParam({ name: 'index', type: Number, example: 0 })
+  @ApiResponse({ status: 200, description: 'Correction undone' })
+  @ApiResponse({
+    status: 404,
+    description: 'Not found - no such activity or correction',
+  })
+  removeActivityCorrection(
+    @JwtUser() user: AuthUser,
+    @Param('eventId', ParseIntPipe) eventId: Event['eventId'],
+    @Param('index', ParseIntPipe) index: number,
+  ) {
+    return this.activityCorrectionsService.remove(user, eventId, index);
   }
 
   // ============================================================================

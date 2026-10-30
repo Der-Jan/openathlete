@@ -1,4 +1,4 @@
-import { TokenType } from '@openathlete/database';
+import { ConnectorProvider, TokenType } from '@openathlete/database';
 
 import { passwordResetUrl } from 'src/modules/auth/helpers/password-reset-url';
 import { AccountDeletionService } from 'src/modules/auth/services/account-deletion.service';
@@ -9,13 +9,17 @@ export const USAGE = `Usage: openathlete <command>
 
   list-users                  List the accounts of this instance
   reset-password <email>      Print a link to set a new password (valid 15 minutes)
-  delete-user <email> --yes   Delete an account and all its data, for good`;
+  delete-user <email> --yes   Delete an account and all its data, for good
+  garmin-backfill             Ask Garmin to resend the last 30 days of activities
+                              of every connected account (the worker imports them)`;
 
 export interface CliDeps {
   prisma: PrismaService;
   tokens: TokenService;
   accountDeletion: AccountDeletionService;
   appUrl: string;
+  /** Queues the historical import of these provider accounts */
+  queueFullImports: (providerAccountIds: number[]) => Promise<void>;
 }
 
 /**
@@ -96,6 +100,26 @@ export async function runCommand(
       }
       await deps.accountDeletion.deleteAccount(user.userId);
       out(`Deleted ${user.email}`);
+      return 0;
+    }
+
+    case 'garmin-backfill': {
+      // Recovers notifications lost on our side: a Garmin backfill sends the
+      // activities again, and those already imported are skipped
+      const accounts = await deps.prisma.providerAccount.findMany({
+        where: {
+          provider: ConnectorProvider.GARMIN,
+          status: 'active',
+          importActivitiesEnabled: true,
+        },
+        select: { providerAccountId: true },
+      });
+      await deps.queueFullImports(
+        accounts.map((account) => account.providerAccountId),
+      );
+      out(
+        `Backfill queued for ${accounts.length} Garmin account${accounts.length === 1 ? '' : 's'}`,
+      );
       return 0;
     }
 

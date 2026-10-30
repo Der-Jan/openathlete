@@ -427,9 +427,9 @@ export interface FitnessState {
 }
 
 /**
- * One day of the Banister impulse-response model: fitness (CTL, 42 days) and
- * fatigue (ATL, 7 days) as exponentially weighted averages of daily load.
- * Rest days must be fed too, with a load of 0, as they make both decay.
+ * One day of the Banister impulse-response model: fitness (CTL) and fatigue
+ * (ATL) as exponential decays of daily load, with time constants of 42 and 7
+ * days. Rest days must be fed too, with a load of 0, as they make both decay.
  */
 export function advanceFitness(
   { ctl, atl }: FitnessState,

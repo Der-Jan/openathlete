@@ -18,6 +18,10 @@ export const formatDuration = (duration: number): string => {
   else return `${minutes}:${paddedSeconds}`;
 };
 
+// Rounded, not truncated: 500 / (500 / 120) is 119.999... seconds, not 1:59
+const formatPace = (seconds: number): string =>
+  formatDuration(Math.round(seconds));
+
 /**
  * Formats a speed value to a human readable format.
  *
@@ -38,10 +42,16 @@ export const formatSpeed = (
       return `${(speed * 2.23694).toFixed(2)}`;
     case 'min/km':
       if (speed === 0) return '0';
-      return formatDuration(1 / (speed / 1000));
+      return formatPace(1000 / speed);
     case 'min/mi':
       if (speed === 0) return '0';
-      return formatDuration(1 / (speed / 1609.34));
+      return formatPace(1609.34 / speed);
+    case 'min/100m':
+      if (speed === 0) return '0';
+      return formatPace(100 / speed);
+    case 'min/500m':
+      if (speed === 0) return '0';
+      return formatPace(500 / speed);
     default:
       return `${speed.toFixed(2)}`;
   }
@@ -59,7 +69,25 @@ export const formatSpeedUnit = (unit: SpeedUnit): string => {
       return 'min/km';
     case 'min/mi':
       return 'min/mi';
+    case 'min/100m':
+      return 'min/100 m';
+    case 'min/500m':
+      return 'min/500 m';
   }
+};
+
+/** Whether the unit reads as time per distance rather than distance per time */
+export const isPaceUnit = (unit: SpeedUnit): boolean => unit.startsWith('min/');
+
+/**
+ * The distance a pace refers to, also the length of a split: 100 m for
+ * swimmers, 500 m for rowers, a kilometre otherwise.
+ */
+export const paceDistanceMeters = (unit: SpeedUnit): number => {
+  if (unit === 'min/100m') return 100;
+  if (unit === 'min/500m') return 500;
+  if (unit === 'min/mi') return 1609.34;
+  return 1000;
 };
 
 /**

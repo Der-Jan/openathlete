@@ -20,6 +20,8 @@ import {
 } from '@openathlete/database';
 import { ActivityStream, ApiEnvSchemaType } from '@openathlete/shared';
 
+import { streamUpdate } from 'src/modules/core/helpers/activity-corrections';
+
 import { ActivityFileParserService } from '../../core/helpers/activity-file-parser.service';
 import { compressActivityStream } from '../../core/helpers/activity-stream';
 import {
@@ -1274,9 +1276,12 @@ export class PolarProviderService
         where: {
           eventActivityId: activity.eventActivityId,
         },
-        data: {
-          stream: compressedStream as object,
-        },
+        // A corrected activity keeps its corrections over the new recording
+        data: await streamUpdate(
+          this.prisma,
+          activity.eventActivityId,
+          compressedStream,
+        ),
       });
 
       const activityWithEvent = await this.prisma.eventActivity.findUnique({

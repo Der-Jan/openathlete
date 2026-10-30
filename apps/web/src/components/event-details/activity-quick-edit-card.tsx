@@ -1,5 +1,6 @@
 import {
   useGetActivityFeedbackQuestionsQuery,
+  useSkipFeedbackMutation,
   useUnskipFeedbackMutation,
 } from '@/api/activity-feedback';
 import { athleteAiTaskUsable, useAiAccessQuery } from '@/api/ai-settings';
@@ -31,6 +32,7 @@ type QuickEditFormValues = z.infer<typeof quickEditSchema>;
 interface P {
   event: ActivityEvent;
   isMyActivity?: boolean;
+  onAnswerFeedback?: () => void;
   onEditFeedback?: () => void;
   onReopenFeedback?: () => void;
 }
@@ -38,6 +40,7 @@ interface P {
 export function ActivityQuickEditCard({
   event,
   isMyActivity = false,
+  onAnswerFeedback,
   onEditFeedback,
   onReopenFeedback,
 }: P) {
@@ -46,6 +49,7 @@ export function ActivityQuickEditCard({
     isMyActivity,
   );
   const unskipMutation = useUnskipFeedbackMutation(event.eventId);
+  const skipMutation = useSkipFeedbackMutation(event.eventId);
   // Questions run on the athlete's or a coach's AI key, or hosted AI
   const { data: aiAccess } = useAiAccessQuery(event.athleteId ?? undefined);
   const [aiSetupOpen, setAiSetupOpen] = useState(false);
@@ -144,6 +148,40 @@ export function ActivityQuickEditCard({
                     {m.activity_feedback_reopen()}
                   </Button>
                 </div>
+              ) : !allAnswered ? (
+                <div
+                  className="flex flex-col gap-3"
+                  data-activity-feedback-pending
+                >
+                  <p className="text-sm font-medium">
+                    {m.activity_feedback_ready()}
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button
+                      onClick={onAnswerFeedback}
+                      size="sm"
+                      className="w-full sm:w-auto"
+                    >
+                      {m.activity_feedback_start()}
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        skipMutation.mutate(undefined, {
+                          onError: () =>
+                            toast.error(m.failed_to_update_activity()),
+                        })
+                      }
+                      variant="outline"
+                      size="sm"
+                      disabled={skipMutation.isPending}
+                      className="w-full sm:w-auto"
+                    >
+                      {skipMutation.isPending
+                        ? m.activity_feedback_skipping()
+                        : m.activity_feedback_skip()}
+                    </Button>
+                  </div>
+                </div>
               ) : allAnswered ? (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
@@ -173,8 +211,8 @@ export function ActivityQuickEditCard({
             <div className="space-y-4 flex-1 flex flex-col">
               <RHFTextarea
                 name="description"
-                label={m.comment()}
-                placeholder={m.description()}
+                label={m.description()}
+                placeholder={m.activity_description_placeholder()}
                 rows={3}
                 className="min-h-[70px]"
               />

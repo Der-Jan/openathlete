@@ -68,6 +68,11 @@ export const paths: Paths = {
       root: `${ROOTS.DASHBOARD}/settings`,
       athleteId: `${ROOTS.DASHBOARD}/settings/:athleteId`,
     },
+    // One activity on its own page, to share or open from a link
+    activity: {
+      root: `${ROOTS.DASHBOARD}/activity`,
+      eventId: `${ROOTS.DASHBOARD}/activity/:eventId`,
+    },
     messages: `${ROOTS.DASHBOARD}/messages`,
     profile: `${ROOTS.DASHBOARD}/profile`,
   },
@@ -89,6 +94,9 @@ export const getPath = (parts: string[]): string => {
   }
   return typeof path === 'string' ? path : path.root;
 };
+
+export const activityPath = (eventId: number): string =>
+  `${getPath(['dashboard', 'activity'])}/${eventId}`;
 
 /**
  * Extracts the last segment from a URL path

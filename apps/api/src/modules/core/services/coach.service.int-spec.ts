@@ -82,7 +82,7 @@ describe('coach dashboard (PostgreSQL)', () => {
     expect(athlete.lastActivityAt?.slice(0, 10)).toBe('2026-01-06');
   });
 
-  it("flags a load spike from the athlete's form", async () => {
+  it('reads the form of an athlete whose load rises', async () => {
     await prisma.athleteInjury.updateMany({ data: { status: 'RESOLVED' } });
     const now = Date.now();
     // Four quiet weeks, then three hard days this week
@@ -129,7 +129,7 @@ describe('coach dashboard (PostgreSQL)', () => {
     const athlete = await row();
     expect(athlete.form).not.toBeNull();
     expect(athlete.form!.atl).toBeGreaterThan(athlete.form!.ctl);
-    expect(athlete.alerts.map((alert) => alert.type)).toEqual(['load_spike']);
+    expect(athlete.alerts).toEqual([]);
   });
 
   it('lists nothing to watch for an athlete who trains steadily', async () => {

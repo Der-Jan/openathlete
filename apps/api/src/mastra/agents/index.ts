@@ -4,4 +4,5 @@ export { trimpEstimationAgent } from './trimp-estimation.agent';
 export { postActivityFeedbackAgent } from './post-activity-feedback.agent';
 export { extractInjuryAgent } from './extract-injury.agent';
 export { extractRpeAgent } from './extract-rpe.agent';
+export { activitySummaryAgent } from './activity-summary.agent';
 export * from './outputs';

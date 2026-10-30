@@ -805,3 +805,57 @@ export const useDuplicateEventMutation = (
     },
   });
 };
+
+/**
+ * After a correction the activity, its stream and its place in the
+ * calendar change at once; records and load follow once it is processed.
+ */
+function invalidateCorrectedActivity(
+  queryClient: ReturnType<typeof useQueryClient>,
+  eventId: Event['eventId'],
+) {
+  queryClient.invalidateQueries({ queryKey: [eventKeys.getEvent, eventId] });
+  queryClient.invalidateQueries({
+    queryKey: [eventKeys.getEventStream, eventId],
+  });
+  queryClient.invalidateQueries({
+    queryKey: [eventKeys.getEventNormalization, eventId],
+  });
+  queryClient.invalidateQueries({ queryKey: [eventKeys.getMyEvents] });
+}
+
+export const useAddActivityCorrectionMutation = (
+  opt?: MutationOptions<
+    Awaited<ReturnType<typeof EventAPI.addActivityCorrection>>,
+    Error,
+    Parameters<typeof EventAPI.addActivityCorrection>[0]
+  >,
+) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...opt,
+    mutationFn: EventAPI.addActivityCorrection,
+    onSuccess: (...args) => {
+      invalidateCorrectedActivity(queryClient, args[1].eventId);
+      opt?.onSuccess?.(...args);
+    },
+  });
+};
+
+export const useRemoveActivityCorrectionMutation = (
+  opt?: MutationOptions<
+    Awaited<ReturnType<typeof EventAPI.removeActivityCorrection>>,
+    Error,
+    Parameters<typeof EventAPI.removeActivityCorrection>[0]
+  >,
+) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...opt,
+    mutationFn: EventAPI.removeActivityCorrection,
+    onSuccess: (...args) => {
+      invalidateCorrectedActivity(queryClient, args[1].eventId);
+      opt?.onSuccess?.(...args);
+    },
+  });
+};

@@ -100,6 +100,15 @@ describe('records curves', () => {
     expect(speed.title(SPORT_TYPE.CYCLING)).toBe('speed');
   });
 
+  it('writes swim paces per 100 m and rowing paces per 500 m', () => {
+    const speed = metric(RECORD_TYPE.SPEED);
+    expect(speed.format(1, SPORT_TYPE.SWIMMING)).toBe('1:40');
+    expect(speed.unit(SPORT_TYPE.SWIMMING)).toBe('min/100 m');
+    expect(speed.title(SPORT_TYPE.SWIMMING)).toBe('pace');
+    expect(speed.format(500 / 120, SPORT_TYPE.ROWING)).toBe('2:00');
+    expect(speed.title(SPORT_TYPE.ROWING)).toBe('pace');
+  });
+
   it('labels the axes', () => {
     expect(formatRecordDistance(400)).toBe('400 m');
     expect(formatRecordDistance(1500)).toBe('1.5 km');

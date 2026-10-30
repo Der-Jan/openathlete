@@ -51,8 +51,6 @@ export const trainingLoadMetricsSchema = z.object({
     max: z.number(),
   }),
   status: z.enum(['overreaching', 'optimal', 'detraining']),
-  /** Acute:chronic workload ratio, null without enough history */
-  acwr: z.number().nullable(),
 });
 
 export type TrainingLoadMetrics = z.infer<typeof trainingLoadMetricsSchema>;
@@ -111,11 +109,6 @@ export const calendarWeekLoadSummarySchema = z.object({
   formProjected: z.boolean().optional(),
   recommendedMin: z.number(),
   recommendedMax: z.number(),
-  acwr: z.number().optional(),
-  acwrStatus: z
-    .enum(['safe', 'optimal', 'moderate_risk', 'high_risk'])
-    .optional(),
-  acwrAdjusted: z.boolean().optional(),
 });
 
 export type CalendarWeekLoadSummary = z.infer<

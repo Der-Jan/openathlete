@@ -86,6 +86,7 @@ provider accounts and activities are not rewritten. Redis and an API worker with
 separate worker container, as described in the [self-hosting guide](/docs/getting-started/self-hosting).
 No Garmin Personal key belongs in a shared `.env` file.
 
+
 `GET /api/instance` advertises `garminPersonalApi: true` only when
 `GARMIN_PERSONAL_API_ENABLED=true`; otherwise it reports `false` and connection
 endpoints return HTTP 503 with `PROVIDER_NOT_CONFIGURED`. No Personal API queue,
@@ -105,3 +106,16 @@ Dates use `YYYY-MM-DD`; unknown fields are rejected. The shared DTOs define the
 status and result contracts. Garmin's [official OpenAPI reference](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/)
 and [reference Python client](https://github.com/garmin/connect-personal-api-python)
 describe the HTTPS key exchange, paginated activity search and zipped FIT download.
+
+### Upgrading an unreleased preview
+
+The pre-merge migration was renamed from `20261026120000_garmin_personal_api`
+to `20261030120000_garmin_personal_api` to follow upstream's existing migrations.
+Its SQL is unchanged. Fresh installations require no special steps.
+
+If a preview database already applied the old name, back it up and reconcile that
+completed Prisma migration record to the new name during the upgrade, after
+verifying that its checksum matches the new file and that the new name has not
+already been applied. Do not replay the SQL against the existing tables or delete
+their data. Coordinate the history change with the application version being
+deployed; do not change a running preview's history in advance.

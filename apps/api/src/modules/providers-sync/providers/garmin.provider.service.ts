@@ -20,6 +20,8 @@ import {
 } from '@openathlete/database';
 import { ApiEnvSchemaType } from '@openathlete/shared';
 
+import { streamUpdate } from 'src/modules/core/helpers/activity-corrections';
+
 import { ActivityFileParserService } from '../../core/helpers/activity-file-parser.service';
 import { compressActivityStream } from '../../core/helpers/activity-stream';
 import { buildFitActivityDetails } from '../../core/helpers/fit-activity-details';
@@ -66,6 +68,7 @@ import {
   ProviderImportCapability,
 } from '../base';
 import { providerRedirectUri } from '../base/provider-urls';
+import { ProviderRateLimitError } from '../errors/provider-rate-limit.error';
 import {
   GarminDailyPartial,
   GarminMetricRecord,
@@ -117,6 +120,36 @@ interface Summary {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Garmin explains its 4xx in { errorMessage } */
+function garminErrorMessage(error: unknown): string {
+  if (!isAxiosError(error)) return String(error);
+  const data: unknown = error.response?.data;
+  if (isObject(data) && typeof data.errorMessage === 'string') {
+    return data.errorMessage;
+  }
+  // Activity files are requested as binary, so is their error body
+  if (data instanceof ArrayBuffer || Buffer.isBuffer(data)) {
+    return Buffer.from(data as ArrayBuffer)
+      .toString('utf8')
+      .slice(0, 300);
+  }
+  return error.message;
+}
+
+/**
+ * Reads the end timestamp (in seconds) of the conflicting backfill window
+ * from Garmin's 409 message:
+ * `[<uuid>]duplicate backfill processed at ... [<start> to <end>]`
+ */
+function parseBackfillConflictEnd(message: string): number | null {
+  const match = message.match(
+    /\bto\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/i,
+  );
+  if (!match) return null;
+  const parsed = Date.parse(match[1]);
+  return Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
 }
 
 export function parseGarminPermissions(
@@ -585,6 +618,16 @@ export class GarminProviderService
     const end = Math.floor(Date.now() / 1000);
     const start = end - Math.floor(this.backfillWindowMs / 1000);
     const accessToken = await this.getValidAccessToken(account);
+    await this.requestActivitiesBackfill(accessToken, start, end);
+    return { queuedActivities: 0, backfillRequested: true };
+  }
+
+  private async requestActivitiesBackfill(
+    accessToken: string,
+    start: number,
+    end: number,
+    retryOnConflict = true,
+  ): Promise<void> {
     try {
       await axios.get(
         `https://${GARMIN_API_HOST}/wellness-api/rest/backfill/activities`,
@@ -598,13 +641,49 @@ export class GarminProviderService
         },
       );
     } catch (error) {
-      // The same range was already requested: its activities are on the way
-      if (isAxiosError(error) && error.response?.status === 409) {
-        return { queuedActivities: 0, backfillRequested: true };
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      // Garmin rejects the whole window with 409 if part of it overlaps an
+      // earlier backfill (`{"errorMessage":"... [<start> to <end>]"}`):
+      // advance past the conflicting window to backfill the remaining gap
+      if (status === 409) {
+        const conflictEnd = retryOnConflict
+          ? parseBackfillConflictEnd(garminErrorMessage(error))
+          : null;
+        if (conflictEnd && conflictEnd > start && conflictEnd < end) {
+          await this.requestActivitiesBackfill(
+            accessToken,
+            conflictEnd,
+            end,
+            false,
+          );
+        }
+        return;
+      }
+      if (status === 429) {
+        const retryAfter = Number(
+          isAxiosError(error) ? error.response?.headers['retry-after'] : NaN,
+        );
+        throw new ProviderRateLimitError(
+          'Garmin',
+          Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : undefined,
+        );
+      }
+      // The user does not share their history with us (412), or Garmin
+      // refuses the request (400): retrying would not change it
+      if (status === 412) {
+        throw new BadRequestException(
+          'This Garmin user does not share their history with OpenAthlete',
+        );
+      }
+      if (status === 400) {
+        throw new BadRequestException(
+          `Garmin refused the backfill: ${garminErrorMessage(error)}`,
+        );
       }
       throw error;
     }
-    return { queuedActivities: 0, backfillRequested: true };
   }
 
   /** Not used: Garmin only allows pulls answering its notifications. */
@@ -759,11 +838,10 @@ export class GarminProviderService
   }
 
   /**
-   * Pulls a callback URL as Garmin built it. Its `token` parameter
-   * authorizes the pull and ties it to the ping: a pull authorized with the
-   * user's access token instead counts as unprompted, and the ping as
-   * unanswered. The access token is only a fallback when the pull token is
-   * missing or refused.
+   * Pulls a callback URL as Garmin built it, `token` parameter included,
+   * authorized with the user's access token: Garmin answers 400 to a pull
+   * carrying the pull token alone. Without an account (a user unknown
+   * here), the pull token is all there is to answer the ping with.
    */
   private async pullCallback<T>(
     callbackURL: string,
@@ -771,27 +849,15 @@ export class GarminProviderService
     responseType: 'json' | 'arraybuffer',
   ): Promise<T> {
     const url = this.getSafeGarminCallbackUrl(callbackURL);
-    const request = (headers: Record<string, string>) =>
-      axios.get<T>(url, {
-        headers,
-        responseType,
-        timeout: responseType === 'arraybuffer' ? 120_000 : 45_000,
-      });
-
-    if (new URL(url).searchParams.has('token') || !account) {
-      try {
-        return (await request({})).data;
-      } catch (error) {
-        const status = isAxiosError(error) ? error.response?.status : undefined;
-        if (!account || (status !== 401 && status !== 403)) throw error;
-        this.logger.warn(
-          `Garmin refused the pull token of a callback (${status}); retrying with the access token of account ${account.providerAccountId}`,
-        );
-      }
-    }
-
-    const accessToken = await this.getValidAccessToken(account);
-    return (await request({ Authorization: `Bearer ${accessToken}` })).data;
+    const headers: Record<string, string> = account
+      ? { Authorization: `Bearer ${await this.getValidAccessToken(account)}` }
+      : {};
+    const { data } = await axios.get<T>(url, {
+      headers,
+      responseType,
+      timeout: responseType === 'arraybuffer' ? 120_000 : 45_000,
+    });
+    return data;
   }
 
   private async pullSummaries(
@@ -809,11 +875,17 @@ export class GarminProviderService
       return isObject(data) ? [data] : [];
     } catch (error) {
       const status = isAxiosError(error) ? error.response?.status : undefined;
-      // 4xx won't change on retry: the summary type is not shared (412), the
-      // user is gone (403), the data expired (410)...
+      // A refused request (400, 401) is a fault on our side: the job fails
+      // loudly and retries while the callback lasts (7 days), instead of
+      // dropping the data unseen
+      if (account && (status === 400 || status === 401)) throw error;
+      // Other 4xx won't change on retry: the summary type is not shared
+      // (412), the user is gone (403), the data expired (410)...
       if (status && status >= 400 && status < 500 && status !== 429) {
-        this.logger.warn(
-          `Garmin ${summaryType} callback answered ${status}${account ? ` for account ${account.providerAccountId}` : ''}`,
+        // Without an account Garmin always refuses the pull: its pings for
+        // users unknown here are routine, not a fault worth a warning
+        this.logger[account ? 'warn' : 'debug'](
+          `Garmin ${summaryType} callback answered ${status}${account ? ` for account ${account.providerAccountId}` : ''}: ${garminErrorMessage(error)}`,
         );
         return [];
       }
@@ -988,7 +1060,7 @@ export class GarminProviderService
       const status = isAxiosError(error) ? error.response?.status : undefined;
       if (status === 410 || status === 404 || status === 412) {
         this.logger.warn(
-          `Garmin activity file ${activityId ?? ''} answered ${status}; skipped`,
+          `Garmin activity file ${activityId ?? ''} answered ${status}: ${garminErrorMessage(error)}`,
         );
         return;
       }
@@ -1007,7 +1079,8 @@ export class GarminProviderService
     await this.prisma.$transaction(async (tx) => {
       await tx.eventActivity.update({
         where: { eventActivityId },
-        data: { stream: details.stream as unknown as object },
+        // A corrected activity keeps its corrections over the new recording
+        data: await streamUpdate(tx, eventActivityId, details.stream),
       });
       if (details.segments.length > 0) {
         await tx.activitySegment.deleteMany({ where: { eventActivityId } });

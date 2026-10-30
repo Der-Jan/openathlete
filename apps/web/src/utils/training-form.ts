@@ -1,7 +1,7 @@
 import { m } from '@/paraglide/messages';
 
 // Same thresholds as the API's training status (training-formulas.constants)
-export const TSB_OVERREACHING = -10;
+export const TSB_OVERREACHING = -20;
 export const TSB_DETRAINING = 25;
 
 export type FormStatus = 'overtraining' | 'optimal' | 'detraining';
@@ -14,9 +14,9 @@ export function getFormStatus(tsb: number): FormStatus {
 }
 
 export const formStatusLabel: Record<FormStatus, () => string> = {
-  overtraining: m.overtraining,
-  optimal: m.optimal_zone,
-  detraining: m.detraining,
+  overtraining: m.form_high_fatigue,
+  optimal: m.form_balanced,
+  detraining: m.form_very_fresh,
 };
 
 export const formStatusTextClass: Record<FormStatus, string> = {

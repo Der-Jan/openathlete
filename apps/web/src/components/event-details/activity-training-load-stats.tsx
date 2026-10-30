@@ -31,20 +31,24 @@ export function ActivityTrainingLoadStats({
     return null;
   }
 
-  const loadsText = trainingLoads
-    .filter(
-      (load) =>
-        load.metadata.calculationType === TrainingLoadCalculationType.TRIMP,
-    )
-    .map((load) => `${load.value.toFixed(0)}`)
-    .join(' / ');
+  // One TRIMP entry per activity: the athlete has a single TRIMP calculation
+  const trimp = trainingLoads.find(
+    (load) =>
+      load.metadata.calculationType === TrainingLoadCalculationType.TRIMP,
+  );
+  if (!trimp) return null;
 
   return (
     <div className="text-left">
       <div className="text-sm font-semibold">{m.training_load()}</div>
       <div className="flex items-center gap-1.5">
         <ActivityIcon className="h-4 w-4 text-muted-foreground" />
-        <span>{loadsText}</span>
+        <span>
+          {trimp.value.toFixed(0)}{' '}
+          <span className="text-gray-500 dark:text-gray-400 text-sm">
+            {m.trimp_unit()}
+          </span>
+        </span>
       </div>
     </div>
   );

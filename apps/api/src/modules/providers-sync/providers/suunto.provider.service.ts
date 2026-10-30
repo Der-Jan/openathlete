@@ -21,6 +21,8 @@ import {
 } from '@openathlete/database';
 import { ActivityStream, ApiEnvSchemaType } from '@openathlete/shared';
 
+import { streamUpdate } from 'src/modules/core/helpers/activity-corrections';
+
 import { ActivityFileParserService } from '../../core/helpers/activity-file-parser.service';
 import { FitFileSegment } from '../../core/helpers/activity-parser.interface';
 import {
@@ -827,9 +829,12 @@ export class SuuntoProviderService
         where: {
           eventActivityId: activity.eventActivityId,
         },
-        data: {
-          stream: compressedStream as object,
-        },
+        // A corrected activity keeps its corrections over the new recording
+        data: await streamUpdate(
+          this.prisma,
+          activity.eventActivityId,
+          compressedStream,
+        ),
       });
 
       // Sync segments from FIT file if available

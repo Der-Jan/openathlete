@@ -209,8 +209,6 @@ function Watchlist({ rows }: { rows: Row[] }) {
                     className={cn(
                       alert.type === 'pain' &&
                         'border-red-300 text-red-700 dark:text-red-300',
-                      alert.type === 'load_spike' &&
-                        'border-orange-300 text-orange-700 dark:text-orange-300',
                     )}
                   >
                     {alertText(alert)}

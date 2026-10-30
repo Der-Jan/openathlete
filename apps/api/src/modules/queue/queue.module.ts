@@ -17,6 +17,7 @@ import { ProviderFullImportProcessor } from './processors/provider-full-import.p
 import { SuuntoNotificationProcessor } from './processors/suunto-notification.processor';
 import { TrainingLoadEstimationProcessor } from './processors/training-load-estimation.processor';
 import { QueueService } from './queue.service';
+import { GapBackfillService } from './services/gap-backfill.service';
 import { RecordsBackfillService } from './services/records-backfill.service';
 import { TrainingLoadEstimationService } from './services/training-load-estimation.service';
 
@@ -348,7 +349,11 @@ function parseRedisUrl(redisUrl: string): {
         ]
       : []),
     ...(process.env.ENABLE_ACTIVITY_PROCESSING === 'true'
-      ? [ActivityProcessingProcessor, RecordsBackfillService]
+      ? [
+          ActivityProcessingProcessor,
+          RecordsBackfillService,
+          GapBackfillService,
+        ]
       : []),
     ...(process.env.ENABLE_TRAINING_LOAD_ESTIMATION === 'true'
       ? [TrainingLoadEstimationProcessor]

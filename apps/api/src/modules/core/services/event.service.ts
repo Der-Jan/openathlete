@@ -52,6 +52,7 @@ import { CalendarWebSocketService } from 'src/modules/calendar/services/calendar
 import { MessageThreadService } from 'src/modules/messages/services/message-thread.service';
 import { MessageService } from 'src/modules/messages/services/message.service';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
+import { QueueService } from 'src/modules/queue/queue.service';
 
 import { CoachActivityNoticeEvent } from '../../../events/coach-activity-notice.event';
 import { ProviderExportService } from '../../providers-sync/export.service';
@@ -118,6 +119,8 @@ export class EventService {
     private trainingLoadEstimationService?: TrainingLoadEstimationService,
     @Optional()
     private readonly calendarWebSocketService?: CalendarWebSocketService,
+    @Optional()
+    private readonly queueService?: QueueService,
   ) {}
 
   public prismaEventToEvent(
@@ -126,7 +129,14 @@ export class EventService {
       training: EventTraining | null;
       note: EventNote | null;
       activity:
-        | (Omit<EventActivity, 'stream' | 'recordsVersion'> & {
+        | (Omit<
+            EventActivity,
+            | 'stream'
+            | 'recordsVersion'
+            | 'gapVersion'
+            | 'originalStream'
+            | 'originalSummary'
+          > & {
             segments?: ActivitySegment[];
             trainingLoadEntries?: Array<{ value: number }>;
             feedbackQuestions?: Array<{
@@ -308,7 +318,58 @@ export class EventService {
       throw new NotFoundException('Event not found');
     }
 
-    return this.prismaEventToEvent(event);
+    const plannedSession = event.activity
+      ? await this.getPlannedSessionOf(event.activity.eventActivityId)
+      : null;
+    return {
+      ...this.prismaEventToEvent(event),
+      ...(plannedSession ? { plannedSession } : {}),
+    };
+  }
+
+  /**
+   * The training or race an activity was linked to, with its workout, so
+   * the activity can show how it went against the plan. Only read for one
+   * activity: calendar lists don't carry workouts for every activity.
+   */
+  private async getPlannedSessionOf(eventActivityId: number) {
+    const training = await this.prisma.eventTraining.findUnique({
+      where: { relatedActivityId: eventActivityId },
+      select: {
+        eventId: true,
+        goalDuration: true,
+        goalDistance: true,
+        event: { select: { name: true } },
+        workout: EVENT_INCLUDES.training.include.workout,
+      },
+    });
+    if (training) {
+      const { event, workout, ...goals } = training;
+      return {
+        type: EVENT_TYPE.TRAINING,
+        name: event.name,
+        ...goals,
+        workout: workout ?? undefined,
+      };
+    }
+
+    const competition = await this.prisma.eventCompetition.findUnique({
+      where: { relatedActivityId: eventActivityId },
+      select: {
+        eventId: true,
+        goalDuration: true,
+        goalDistance: true,
+        event: { select: { name: true } },
+      },
+    });
+    if (!competition) return null;
+    const { event, ...goals } = competition;
+    return {
+      type: EVENT_TYPE.COMPETITION,
+      name: event.name,
+      ...goals,
+      workout: undefined,
+    };
   }
 
   async getEventsOfAthlete(user: AuthUser, startDate?: Date, endDate?: Date) {
@@ -899,6 +960,28 @@ export class EventService {
         where: { eventActivityId: event.activity.eventActivityId },
         data: { date: startDate },
       });
+    }
+
+    // Records, pace and load depend on the sport: process the activity again,
+    // without the AI or a notification, as for history
+    if (
+      !isTemplate &&
+      event.activity &&
+      'sport' in rest &&
+      rest.sport &&
+      rest.sport !== event.activity.sport
+    ) {
+      await this.queueService
+        ?.addActivityProcessingJob(
+          event.activity.eventActivityId,
+          eventId,
+          true,
+        )
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `Could not reprocess activity ${eventId} after a change of sport: ${String(error)}`,
+          ),
+        );
     }
 
     // If RPE was updated on an activity, or it moved to another day, trigger
@@ -1555,7 +1638,14 @@ export class EventService {
       competition: EventCompetition | null;
       training: EventTraining | null;
       note: EventNote | null;
-      activity: Omit<EventActivity, 'stream' | 'recordsVersion'> | null;
+      activity: Omit<
+        EventActivity,
+        | 'stream'
+        | 'recordsVersion'
+        | 'gapVersion'
+        | 'originalStream'
+        | 'originalSummary'
+      > | null;
     },
   ): Promise<boolean> {
     if (!event.athleteId) return true; // No athlete, consider validated

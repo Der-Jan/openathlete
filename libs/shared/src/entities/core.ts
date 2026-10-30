@@ -120,6 +120,16 @@ export type ActivityInjuryNote = Pick<
   'athleteInjuryId' | 'location' | 'painScore' | 'context'
 > & { status: INJURY_STATUS };
 
+/** The training or race an activity was linked to, as the plan it followed */
+export interface PlannedSession {
+  type: EVENT_TYPE.TRAINING | EVENT_TYPE.COMPETITION;
+  eventId: number;
+  name: string;
+  goalDuration: number | null;
+  goalDistance: number | null;
+  workout?: Workout;
+}
+
 export type ActivityEvent = Omit<
   PrismaEvent,
   'type' | 'activity' | 'training' | 'competition' | 'note'
@@ -134,6 +144,8 @@ export type ActivityEvent = Omit<
     extractedInjuries?: ActivityInjuryNote[];
     /** TRIMP of the activity, null until it is processed */
     trainingLoad?: number | null;
+    /** Only when the activity is read on its own */
+    plannedSession?: PlannedSession;
   };
 
 export type Event =

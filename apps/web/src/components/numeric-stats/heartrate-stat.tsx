@@ -18,7 +18,11 @@ interface P {
 }
 
 export function HeartrateStat({ label, heartrate, sport, athleteId }: P) {
-  const trainingZones = useTrainingZones(TRAINING_ZONE_TYPE.HEARTRATE, sport);
+  const trainingZones = useTrainingZones(
+    TRAINING_ZONE_TYPE.HEARTRATE,
+    sport,
+    athleteId,
+  );
   const { data: latestMetrics = {} } = useGetLatestMetricsQuery(athleteId);
 
   const zone = trainingZones?.find((zone) => {

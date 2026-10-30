@@ -77,104 +77,47 @@ export const PLANNED_LOAD_DEFAULT_RPE = 0.5;
 // Exponentially Weighted Moving Average (EWMA) Constants
 // ============================================================================
 
-/**
- * Alpha coefficient for Acute Training Load (ATL) calculation
- *
- * ATL represents the 7-day exponentially weighted moving average of training load.
- * Formula: alpha = 2 / (period + 1) where period = 7 days
- * This gives more weight to recent training while still considering the full week.
- *
- * Source: TrainingPeaks methodology, based on Banister's impulse-response model
- */
-export const EWMA_ALPHA_ATL = 2 / 8; // 7-day EWMA
+/** Time constant of fatigue (ATL), in days */
+export const ATL_TIME_CONSTANT_DAYS = 7;
+
+/** Time constant of fitness (CTL), in days */
+export const CTL_TIME_CONSTANT_DAYS = 42;
 
 /**
- * Alpha coefficient for Chronic Training Load (CTL) calculation
+ * Daily weight of the ATL exponential decay.
  *
- * CTL represents the 42-day exponentially weighted moving average of training load.
- * Formula: alpha = 2 / (period + 1) where period = 42 days
- * This provides a long-term fitness indicator that responds slowly to changes.
+ * The impulse-response model decays as e^(-t/τ), so one day weighs
+ * 1 - e^(-1/τ). The moving-average shorthand 2 / (N + 1) is not the same
+ * model: it would halve both time constants.
  *
- * Source: TrainingPeaks methodology, based on Banister's impulse-response model
+ * Source: Banister et al. 1975; Clarke & Skiba 2013, doi:10.1152/advan.00078.2011
  */
-export const EWMA_ALPHA_CTL = 2 / 43; // 42-day EWMA
+export const EWMA_ALPHA_ATL = 1 - Math.exp(-1 / ATL_TIME_CONSTANT_DAYS);
+
+/** Daily weight of the CTL exponential decay. See EWMA_ALPHA_ATL. */
+export const EWMA_ALPHA_CTL = 1 - Math.exp(-1 / CTL_TIME_CONSTANT_DAYS);
 
 // ============================================================================
 // Training Stress Balance (TSB) Thresholds
 // ============================================================================
 
 /**
- * TSB threshold for overreaching status
+ * TSB below which recent load is well above fitness.
  *
- * When TSB (CTL - ATL) is below this value, the athlete is considered overreaching.
- * Negative TSB indicates fatigue accumulation from recent high training loads.
- *
- * Source: TrainingPeaks methodology
+ * A convention to describe the curve, not a validated limit: TSB alone does
+ * not diagnose overreaching. -20 keeps the former -10 with the corrected time
+ * constants: on a steady ramp TSB is proportional to their gap, 35 days against
+ * 17.5 before.
  */
-export const TSB_OVERREACHING_THRESHOLD = -10;
+export const TSB_OVERREACHING_THRESHOLD = -20;
 
 /**
- * TSB threshold for detraining status
+ * TSB above which recent load is well below fitness.
  *
- * When TSB (CTL - ATL) is above this value, the athlete is considered detraining.
- * High positive TSB indicates low recent training relative to fitness baseline.
- *
- * Source: TrainingPeaks methodology
+ * A convention to describe the curve, not a sign of detraining by itself: a
+ * taper gets there too.
  */
 export const TSB_DETRAINING_THRESHOLD = 25;
-
-// ============================================================================
-// Acute:Chronic Workload Ratio (ACWR) Thresholds
-// ============================================================================
-
-/**
- * ACWR threshold for safe/underconditioned status
- *
- * ACWR < 0.8 indicates the athlete is underconditioned or in a safe zone.
- * This suggests recent training load is lower than chronic load.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_SAFE_THRESHOLD = 0.8;
-
-/**
- * ACWR threshold for optimal training zone
- *
- * ACWR between 0.8 and 1.3 is considered the optimal training zone,
- * balancing training stimulus with injury risk.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_OPTIMAL_MAX = 1.3;
-
-/**
- * ACWR threshold for moderate injury risk
- *
- * ACWR between 1.3 and 1.5 indicates moderate injury risk.
- * Training load recommendations should be reduced by 10% in this zone.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_MODERATE_RISK_THRESHOLD = 1.5;
-
-/**
- * ACWR threshold for high injury risk
- *
- * ACWR > 1.5 indicates high injury risk.
- * Training load recommendations should be reduced by 20% in this zone.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_HIGH_RISK_THRESHOLD = 1.5;
-
-/**
- * Weeks of load the ACWR needs before the acute week
- *
- * With fewer weeks of history (a new athlete, or a return after a long
- * break) the chronic load is not established yet and the ratio would only
- * reflect missing data, so no ACWR is reported or used.
- */
-export const ACWR_MIN_CHRONIC_WEEKS = 3;
 
 // ============================================================================
 // Training Zone Percentages (%HRmax)
@@ -371,10 +314,8 @@ export const LOAD_SLOPE_CLAMP = {
 /**
  * Base recommendation ratios
  *
- * Base ratios for calculating recommended training load ranges.
- * These are adjusted based on training history and ACWR.
- *
- * Source: Training load progression best practices
+ * Base ratios for the usual load range, adjusted on the trend of the last
+ * weeks. A rule of thumb to frame a week, not a validated safe limit.
  */
 export const RECOMMENDATION_BASE_RATIOS = {
   MIN: 0.75, // Base minimum ratio (75% of baseline)
@@ -398,18 +339,6 @@ export const RECOMMENDATION_ADJUSTMENTS = {
   TREND_CLAMP_MIN: 0.6, // Minimum trend ratio
   TREND_CLAMP_MAX: 1.4, // Maximum trend ratio
   TREND_WEIGHT: 0.6, // Weight for trend-based adjustments
-} as const;
-
-/**
- * ACWR-based recommendation adjustments
- *
- * Multipliers applied to recommendations based on ACWR status.
- * Higher ACWR (injury risk) leads to reduced recommendations.
- */
-export const ACWR_RECOMMENDATION_ADJUSTMENTS = {
-  HIGH_RISK_MULTIPLIER: 0.8, // Reduce by 20% when ACWR > 1.5
-  MODERATE_RISK_MULTIPLIER: 0.9, // Reduce by 10% when ACWR > 1.3
-  SAFE_PROGRESSION_MULTIPLIER: 1.05, // Allow 5% more when ACWR < 0.8
 } as const;
 
 /**

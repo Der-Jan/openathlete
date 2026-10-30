@@ -189,6 +189,9 @@ model EventActivity {
   /// Version of the record computation its records come from: older ones
   /// are recomputed in the background
   recordsVersion         Int                @default(0) @map("records_version")
+  /// Version of the grade adjustment averageGapSpeed comes from: older ones
+  /// are recomputed in the background
+  gapVersion             Int                @default(0) @map("gap_version")
   /// Activity description/notes
   description            String             @default("")
   /// Average Grade Adjusted Pace (GAP) speed in m/s (normalized for elevation)
@@ -199,6 +202,19 @@ model EventActivity {
   feedbackSkipped        Boolean            @default(false) @map("feedback_skipped")
   /// When the AI last read the feedback answers for pain and RPE (null: not yet)
   feedbackAnalyzedAt     DateTime?          @map("feedback_analyzed_at")
+  /// What the AI read in the activity: headline, points and a suggestion
+  /// (shape in libs/shared activityAiSummarySchema); null until it ran
+  aiSummary              Json?              @map("ai_summary")
+  /// When the summary was written, to tell it from one not attempted yet
+  aiSummaryAt            DateTime?          @map("ai_summary_at")
+  /// The stream as recorded, kept from the first correction on so every
+  /// correction can be undone; null for an activity never corrected
+  originalStream         Json?              @map("original_stream")
+  /// The summary figures and dates as recorded, kept with originalStream
+  originalSummary        Json?              @map("original_summary")
+  /// Corrections applied over originalStream, in order (shape in
+  /// libs/shared StoredActivityCorrection); null for none
+  corrections            Json?
 
   // relationships
   event               Event                       @relation(fields: [eventId], references: [eventId])
