@@ -1646,5 +1646,13 @@
   "sso_failed_title": "Échec de la connexion",
   "sso_failed": "La connexion n'a pas pu aboutir. Réessayez, ou connectez-vous avec votre mot de passe.",
   "sso_email_unverified": "Votre fournisseur d'identité n'a pas confirmé votre adresse e-mail, dont OpenAthlete a besoin pour retrouver votre compte.",
-  "sso_back_to_login": "Retour à la connexion"
+  "sso_back_to_login": "Retour à la connexion",
+  "training_paces_title": "Allures d'entraînement",
+  "training_paces_source": "VDOT {vdot}, d'après {distance} en {time}",
+  "training_paces_help": "Allures théoriques selon la méthode de Jack Daniels, calculées à partir du meilleur effort entre 1500 m et le marathon, sur cette saison s'il y en a un. Un parcours vallonné ou un tapis peut les fausser.",
+  "training_pace_easy": "Endurance",
+  "training_pace_marathon": "Marathon",
+  "training_pace_threshold": "Seuil",
+  "training_pace_interval": "Intervalle",
+  "training_pace_repetition": "Répétition"
 }

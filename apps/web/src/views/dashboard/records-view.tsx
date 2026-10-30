@@ -3,6 +3,7 @@ import { EventDetails } from '@/components/event-details/event-details';
 import { RECORD_METRICS } from '@/components/records/record-metrics';
 import { RecordsCurveChart } from '@/components/records/records-curve-chart';
 import { RecordsTable } from '@/components/records/records-table';
+import { TrainingPacesCard } from '@/components/records/training-paces-card';
 import { SportSelect } from '@/components/sport-select/sport-select';
 import {
   Card,
@@ -115,6 +116,12 @@ export function RecordsView({ athleteId }: P) {
         </Card>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {sport === SPORT_TYPE.RUNNING && (
+            // This season says more of the current level than an old best
+            <TrainingPacesCard
+              recordSets={[periods[1].records, periods[0].records]}
+            />
+          )}
           {metrics.map((metric) => (
             <Card key={metric.type} data-records-metric={metric.type}>
               <CardHeader>

@@ -1646,5 +1646,13 @@
   "sso_failed_title": "Accesso non riuscito",
   "sso_failed": "Non è stato possibile completare l'accesso. Riprova, oppure accedi con la tua password.",
   "sso_email_unverified": "Il tuo provider di identità non ha confermato il tuo indirizzo email, che serve a OpenAthlete per trovare il tuo account.",
-  "sso_back_to_login": "Torna all'accesso"
+  "sso_back_to_login": "Torna all'accesso",
+  "training_paces_title": "Ritmi di allenamento",
+  "training_paces_source": "VDOT {vdot}, in base a {distance} in {time}",
+  "training_paces_help": "Ritmi teorici secondo il metodo di Jack Daniels, calcolati dalla migliore prestazione tra 1500 m e la maratona, di questa stagione se presente. Percorsi collinari o tapis roulant possono falsarli.",
+  "training_pace_easy": "Facile",
+  "training_pace_marathon": "Maratona",
+  "training_pace_threshold": "Soglia",
+  "training_pace_interval": "Intervalli",
+  "training_pace_repetition": "Ripetute"
 }

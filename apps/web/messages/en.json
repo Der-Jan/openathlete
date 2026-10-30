@@ -1646,5 +1646,13 @@
   "sso_failed_title": "Sign-in failed",
   "sso_failed": "The sign-in could not be completed. Try again, or sign in with your password.",
   "sso_email_unverified": "Your identity provider did not confirm your email address, which OpenAthlete needs to find your account.",
-  "sso_back_to_login": "Back to sign-in"
+  "sso_back_to_login": "Back to sign-in",
+  "training_paces_title": "Training paces",
+  "training_paces_source": "VDOT {vdot}, based on {distance} in {time}",
+  "training_paces_help": "Theoretical paces from Jack Daniels' method, calculated from the strongest effort between 1500 m and the marathon, this season if there is one. Hilly or indoor efforts can skew them.",
+  "training_pace_easy": "Easy",
+  "training_pace_marathon": "Marathon",
+  "training_pace_threshold": "Threshold",
+  "training_pace_interval": "Interval",
+  "training_pace_repetition": "Repetition"
 }
