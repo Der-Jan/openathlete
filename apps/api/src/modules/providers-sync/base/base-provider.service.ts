@@ -38,6 +38,20 @@ export interface OAuthConfig {
   scopes: string[];
 }
 
+/**
+ * OAuth answers 400 invalid_grant to a dead refresh token, some providers
+ * 401. Other 400s (a wrong client secret) say nothing about the user's token.
+ */
+function isRefreshTokenRejected(error: unknown): boolean {
+  if (!isAxiosError(error)) return false;
+  const { status, data } = error.response ?? {};
+  if (status === 401) return true;
+  return (
+    status === 400 &&
+    (data as { error?: unknown } | undefined)?.error === 'invalid_grant'
+  );
+}
+
 @Injectable()
 export abstract class BaseProviderService {
   protected readonly logger: Logger;
@@ -194,12 +208,19 @@ export abstract class BaseProviderService {
 
       return updatedAccount.accessToken;
     } catch (error) {
-      // If refresh token is invalid (401), mark account as revoked
-      if (
-        isAxiosError(error) &&
-        error.response?.status === 401 &&
-        account.status === 'active'
-      ) {
+      if (isRefreshTokenRejected(error) && account.status === 'active') {
+        // Refresh tokens rotate: a concurrent job may have just spent this
+        // one, which proves the account alive rather than revoked
+        const stored = await this.prisma.providerAccount.findUnique({
+          where: { providerAccountId: account.providerAccountId },
+        });
+        if (
+          stored?.status === 'active' &&
+          stored.refreshToken !== account.refreshToken
+        ) {
+          return stored.accessToken;
+        }
+
         this.logger.warn(
           `Refresh token invalid for ${this.provider} account ${account.providerAccountId} (athlete ${account.athleteId}), marking as revoked`,
         );
