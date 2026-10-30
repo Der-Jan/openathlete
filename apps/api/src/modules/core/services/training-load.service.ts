@@ -166,12 +166,6 @@ export class TrainingLoadService {
     return loads;
   }
 
-  /**
-   * Calculate ACWR (Acute:Chronic Workload Ratio) from weekly loads
-   * ACWR = ATL / CTL
-   * ATL = 7-day exponentially weighted average (acute)
-   * CTL = 42-day exponentially weighted average (chronic)
-   */
   /** Monday (UTC) of the week of the athlete's first activity, if any */
   private async firstActivityWeek(athleteId: number): Promise<Date | null> {
     const first = await this.prisma.event.findFirst({
@@ -182,6 +176,22 @@ export class TrainingLoadService {
     return first ? getUtcWeekStart(first.startDate) : null;
   }
 
+  /**
+   * Where a fitness series reading from `date` has to start. The model keeps
+   * the memory of every load, so it always runs from the athlete's first
+   * activity: a date then has one value, whatever the period asked for.
+   */
+  private async fitnessStart(athleteId: number, date: Date): Promise<Date> {
+    const firstWeek = await this.firstActivityWeek(athleteId);
+    return firstWeek && firstWeek < date ? firstWeek : date;
+  }
+
+  /**
+   * Calculate ACWR (Acute:Chronic Workload Ratio) from weekly loads
+   * ACWR = ATL / CTL
+   * ATL = 7-day exponentially weighted average (acute)
+   * CTL = 42-day exponentially weighted average (chronic)
+   */
   private calculateACWRFromWeeklyLoads(
     weeklyLoads: number[],
     weeksOfData: number,
@@ -725,6 +735,7 @@ export class TrainingLoadService {
           lte: endDate,
         },
       },
+      select: { date: true, value: true },
       orderBy: {
         date: 'asc',
       },
@@ -798,8 +809,8 @@ export class TrainingLoadService {
       targetAthleteId = athlete.athleteId;
     }
 
-    // Get last 42 days of data for CTL calculation
-    const startDate = addUtcDays(targetDate, -42);
+    const periodStart = addUtcDays(targetDate, -42);
+    const startDate = await this.fitnessStart(targetAthleteId, periodStart);
 
     const dailyLoads = await this.getTrainingLoadByPeriod(
       user,
@@ -845,8 +856,9 @@ export class TrainingLoadService {
     const tsb = ctl - atl;
 
     // Calculate total load for the period
-    const totalLoad = dailyLoads.reduce((sum, day) => sum + day.load, 0);
-    const trainingDays = dailyLoads.length;
+    const periodLoads = dailyLoads.filter((day) => day.date >= periodStart);
+    const totalLoad = periodLoads.reduce((sum, day) => sum + day.load, 0);
+    const trainingDays = periodLoads.length;
 
     // Determine training status based on TSB
     let status: 'overreaching' | 'optimal' | 'detraining';
@@ -959,8 +971,10 @@ export class TrainingLoadService {
       targetAthleteId = athlete.athleteId;
     }
 
-    // Get data starting 42 days before startDate for proper CTL calculation
-    const extendedStartDate = addUtcDays(startDate, -42);
+    const extendedStartDate = await this.fitnessStart(
+      targetAthleteId,
+      startDate,
+    );
 
     const dailyLoads = await this.getTrainingLoadByPeriod(
       user,
@@ -1146,13 +1160,14 @@ export class TrainingLoadService {
       throw new ForbiddenException('Not allowed to access this athlete');
     }
 
-    // The same warm-up as the weekly summary, so both agree
-    const warmupFrom = addUtcDays(getUtcWeekStart(startDate), -42);
+    const firstDay = addUtcDays(getUtcWeekStart(startDate), -42);
+    const warmupFrom = await this.fitnessStart(athlete.athleteId, firstDay);
     const to = startOfUtcDay(endDate);
     to.setUTCHours(23, 59, 59, 999);
     const [entries, sessions, metrics] = await Promise.all([
       this.getTrimpEntries(athlete.athleteId, warmupFrom, to),
-      this.getPlannedSessionLoads(athlete.athleteId, warmupFrom, to),
+      // Only sessions still to do count: none lies before the period
+      this.getPlannedSessionLoads(athlete.athleteId, firstDay, to),
       wellness
         ? this.prisma.athleteMetric.findMany({
             where: {
@@ -1245,11 +1260,15 @@ export class TrainingLoadService {
     const normalizedEnd = addUtcDays(getUtcWeekStart(endDate), 6);
     normalizedEnd.setUTCHours(23, 59, 59, 999);
 
-    // Six weeks of history warm up the recommendations and the fitness model
+    // Six weeks of history warm up the recommendations
     const extendedStart = addUtcDays(normalizedStart, -42);
+    const historyStart = await this.fitnessStart(
+      targetAthleteId,
+      extendedStart,
+    );
 
     const [entries, sessions] = await Promise.all([
-      this.getTrimpEntries(targetAthleteId, extendedStart, normalizedEnd),
+      this.getTrimpEntries(targetAthleteId, historyStart, normalizedEnd),
       this.getPlannedSessionLoads(
         targetAthleteId,
         extendedStart,
@@ -1258,7 +1277,7 @@ export class TrainingLoadService {
     ]);
 
     const sortedSummaries = buildWeeklyLoads({
-      from: extendedStart,
+      from: historyStart,
       to: normalizedEnd,
       entries,
       sessions,

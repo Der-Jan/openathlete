@@ -128,11 +128,54 @@ function weeklySummaryService({
   const service = new TrainingLoadService(
     prisma as unknown as PrismaService,
     {
-      getFor: jest.fn().mockResolvedValue({}),
+      getFor: jest.fn().mockResolvedValue({ can: () => true }),
     } as unknown as CaslAbilityFactory,
   );
   return { prisma, service };
 }
+
+describe('TrainingLoadService fitness', () => {
+  // Three months of steady load, then the same days read through each method
+  const loads = Object.fromEntries(
+    Array.from({ length: 90 }, (_, index) => {
+      const day = new Date(Date.UTC(2026, 3, 1 + index));
+      return [day.toISOString().slice(0, 10), 60];
+    }),
+  );
+  const day = new Date('2026-06-28T00:00:00Z');
+
+  async function dailyCtl(from: string) {
+    const { service } = weeklySummaryService({ loads });
+    const days = await service.getDailyForm(
+      athlete,
+      new Date(from),
+      day,
+      12,
+      false,
+    );
+    return days.at(-1)!.ctl;
+  }
+
+  it('gives a date the same fitness whatever the period read', async () => {
+    expect(await dailyCtl('2026-06-22T00:00:00Z')).toBe(
+      await dailyCtl('2026-04-06T00:00:00Z'),
+    );
+  });
+
+  it('agrees between the day by day form and the weekly summary', async () => {
+    const { service } = weeklySummaryService({ loads });
+    const weeks = await service.getWeeklyTrimpSummary(
+      athlete,
+      new Date('2026-06-22T00:00:00Z'),
+      day,
+      12,
+    );
+    const week = weeks.find(
+      ({ weekStart }) => weekStart.toISOString().slice(0, 10) === '2026-06-22',
+    );
+    expect(week?.ctl).toBe(await dailyCtl('2026-06-22T00:00:00Z'));
+  });
+});
 
 describe('TrainingLoadService weekly ACWR', () => {
   /** Weekly summaries for TRIMP entries keyed by day (one per week here). */

@@ -42,9 +42,9 @@ const COLORS = {
 };
 
 const TSB_ZONES = [
-  { key: 'overtraining', color: '#ef4444', label: () => m.overtraining() },
-  { key: 'optimal', color: '#22c55e', label: () => m.optimal_zone() },
-  { key: 'detraining', color: '#3b82f6', label: () => m.detraining() },
+  { key: 'overtraining', color: '#ef4444', label: () => m.form_high_fatigue() },
+  { key: 'optimal', color: '#22c55e', label: () => m.form_balanced() },
+  { key: 'detraining', color: '#3b82f6', label: () => m.form_very_fresh() },
 ] as const;
 
 type Series = keyof typeof COLORS;

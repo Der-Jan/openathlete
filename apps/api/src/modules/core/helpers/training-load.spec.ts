@@ -424,6 +424,16 @@ describe('advanceFitness', () => {
     // Form (CTL - ATL) improves with rest
     expect(rested.ctl - rested.atl).toBeGreaterThan(state.ctl - state.atl);
   });
+
+  it('reaches 1 - 1/e of a steady load after one time constant', () => {
+    const after = (days: number) => {
+      let state = { ctl: 0, atl: 0 };
+      for (let day = 0; day < days; day++) state = advanceFitness(state, 100);
+      return state;
+    };
+    expect(after(7).atl).toBeCloseTo(100 * (1 - Math.exp(-1)), 5);
+    expect(after(42).ctl).toBeCloseTo(100 * (1 - Math.exp(-1)), 5);
+  });
 });
 
 describe('getHeartRateProfile', () => {
