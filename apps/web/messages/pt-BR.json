@@ -1609,7 +1609,6 @@
   "coach_watch_title": "Para acompanhar",
   "coach_watch_none": "Nada para acompanhar: todos treinaram esta semana, nenhuma dor relatada, nenhuma mensagem não lida.",
   "coach_alert_pain": "Dor: {location} ({score}/10)",
-  "coach_alert_load_spike": "Carga aumentou bruscamente (razão {ratio})",
   "coach_alert_inactive": "Sem atividade há {days} dias",
   "coach_alert_never_active": "Nenhuma atividade ainda",
   "coach_unread_messages": "{count} não lidas",

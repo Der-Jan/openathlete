@@ -7,8 +7,6 @@ export const coachAlertSchema = z.discriminatedUnion('type', [
     location: z.string(),
     painScore: z.number(),
   }),
-  /** The last week's load is far above the athlete's usual load */
-  z.object({ type: z.literal('load_spike'), acwr: z.number() }),
   /** No activity for a while; days is null when there was never any */
   z.object({ type: z.literal('inactive'), days: z.number().nullable() }),
 ]);
@@ -36,7 +34,6 @@ export const coachDashboardAthleteRowSchema = z.object({
       ctl: z.number(),
       atl: z.number(),
       tsb: z.number(),
-      acwr: z.number().nullable(),
     })
     .nullable(),
   /** What the coach should look at, the most urgent first */

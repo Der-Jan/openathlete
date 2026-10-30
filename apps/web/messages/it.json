@@ -1609,7 +1609,6 @@
   "coach_watch_title": "Da tenere d’occhio",
   "coach_watch_none": "Niente da segnalare: tutti si sono allenati questa settimana, nessun dolore segnalato, nessun messaggio non letto.",
   "coach_alert_pain": "Dolore: {location} ({score}/10)",
-  "coach_alert_load_spike": "Carico in forte aumento (rapporto {ratio})",
   "coach_alert_inactive": "Nessuna attività da {days} giorni",
   "coach_alert_never_active": "Ancora nessuna attività",
   "coach_unread_messages": "{count} non letti",

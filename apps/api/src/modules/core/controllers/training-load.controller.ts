@@ -245,7 +245,7 @@ export class TrainingLoadController {
   @ApiOperation({
     summary: 'Get current training load metrics (ATL, CTL, TSB)',
     description:
-      'Retrieves current training load metrics for a specific date (defaults to today). Calculates ATL (Acute Training Load - 7-day exponentially weighted moving average), CTL (Chronic Training Load - 42-day exponentially weighted moving average), and TSB (Training Stress Balance = CTL - ATL). Also provides recommended load range for the next week based on 10% progression rule and training status (overreaching, optimal, or detraining) based on TSB thresholds. Uses data from the last 42 days for CTL calculation. Uses CASL authorization to verify access to the Athlete.',
+      'Retrieves current training load metrics for a specific date (defaults to today). Calculates ATL (Acute Training Load - 7-day exponentially weighted moving average), CTL (Chronic Training Load - 42-day exponentially weighted moving average), and TSB (Training Stress Balance = CTL - ATL). Also provides a usual load range for the next week, from the last weeks, and a descriptive status (overreaching, optimal, or detraining) based on TSB thresholds. Fitness runs from the first activity. Uses CASL authorization to verify access to the Athlete.',
   })
   @ApiQuery({
     name: 'calculationType',
@@ -308,7 +308,7 @@ export class TrainingLoadController {
         recommendedLoadRange: {
           type: 'object',
           description:
-            'Recommended load range for next week based on 10% progression rule',
+            'Usual load range for next week, from the load of the last weeks',
           properties: {
             min: { type: 'number', example: 40 },
             max: { type: 'number', example: 55 },
@@ -517,7 +517,7 @@ export class TrainingLoadController {
   @ApiOperation({
     summary: 'Get weekly TRIMP summary with actual and estimated loads',
     description:
-      'Retrieves weekly TRIMP load summaries for a period, including actual loads (from completed activities) and estimated loads (from planned training sessions). Each week includes ACWR (Acute:Chronic Workload Ratio) calculation and status, recommended load range, and whether recommendations were adjusted based on ACWR. Includes a projected future week if applicable. Weeks are normalized to start on Monday. Uses CASL authorization to verify access to the Athlete.',
+      'Retrieves weekly TRIMP load summaries for a period, including actual loads (from completed activities) and estimated loads (from planned training sessions). Each week includes a usual load range, from the load of the previous weeks. Includes a projected future week if applicable. Weeks are normalized to start on Monday. Uses CASL authorization to verify access to the Athlete.',
   })
   @ApiQuery({
     name: 'startDate',
@@ -615,25 +615,6 @@ export class TrainingLoadController {
             type: 'number',
             description: 'Recommended maximum load for this week',
             example: 220.0,
-          },
-          acwr: {
-            type: 'number',
-            nullable: true,
-            description: 'Acute:Chronic Workload Ratio (ATL/CTL)',
-            example: 1.2,
-          },
-          acwrStatus: {
-            type: 'string',
-            enum: ['safe', 'optimal', 'moderate_risk', 'high_risk'],
-            nullable: true,
-            description: 'ACWR status based on risk thresholds',
-            example: 'optimal',
-          },
-          acwrAdjusted: {
-            type: 'boolean',
-            nullable: true,
-            description: 'Whether recommendations were adjusted based on ACWR',
-            example: false,
           },
         },
         required: [

@@ -1609,7 +1609,6 @@
   "coach_watch_title": "To watch",
   "coach_watch_none": "Nothing to watch: everyone trained this week, no pain reported, no unread message.",
   "coach_alert_pain": "Pain: {location} ({score}/10)",
-  "coach_alert_load_spike": "Load up sharply (ratio {ratio})",
   "coach_alert_inactive": "No activity for {days} days",
   "coach_alert_never_active": "No activity yet",
   "coach_unread_messages": "{count} unread",

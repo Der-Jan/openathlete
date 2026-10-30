@@ -120,59 +120,6 @@ export const TSB_OVERREACHING_THRESHOLD = -20;
 export const TSB_DETRAINING_THRESHOLD = 25;
 
 // ============================================================================
-// Acute:Chronic Workload Ratio (ACWR) Thresholds
-// ============================================================================
-
-/**
- * ACWR threshold for safe/underconditioned status
- *
- * ACWR < 0.8 indicates the athlete is underconditioned or in a safe zone.
- * This suggests recent training load is lower than chronic load.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_SAFE_THRESHOLD = 0.8;
-
-/**
- * ACWR threshold for optimal training zone
- *
- * ACWR between 0.8 and 1.3 is considered the optimal training zone,
- * balancing training stimulus with injury risk.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_OPTIMAL_MAX = 1.3;
-
-/**
- * ACWR threshold for moderate injury risk
- *
- * ACWR between 1.3 and 1.5 indicates moderate injury risk.
- * Training load recommendations should be reduced by 10% in this zone.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_MODERATE_RISK_THRESHOLD = 1.5;
-
-/**
- * ACWR threshold for high injury risk
- *
- * ACWR > 1.5 indicates high injury risk.
- * Training load recommendations should be reduced by 20% in this zone.
- *
- * Source: Gabbett, T. J. (2016). The training-injury prevention paradox.
- */
-export const ACWR_HIGH_RISK_THRESHOLD = 1.5;
-
-/**
- * Weeks of load the ACWR needs before the acute week
- *
- * With fewer weeks of history (a new athlete, or a return after a long
- * break) the chronic load is not established yet and the ratio would only
- * reflect missing data, so no ACWR is reported or used.
- */
-export const ACWR_MIN_CHRONIC_WEEKS = 3;
-
-// ============================================================================
 // Training Zone Percentages (%HRmax)
 // ============================================================================
 
@@ -367,10 +314,8 @@ export const LOAD_SLOPE_CLAMP = {
 /**
  * Base recommendation ratios
  *
- * Base ratios for calculating recommended training load ranges.
- * These are adjusted based on training history and ACWR.
- *
- * Source: Training load progression best practices
+ * Base ratios for the usual load range, adjusted on the trend of the last
+ * weeks. A rule of thumb to frame a week, not a validated safe limit.
  */
 export const RECOMMENDATION_BASE_RATIOS = {
   MIN: 0.75, // Base minimum ratio (75% of baseline)
@@ -394,18 +339,6 @@ export const RECOMMENDATION_ADJUSTMENTS = {
   TREND_CLAMP_MIN: 0.6, // Minimum trend ratio
   TREND_CLAMP_MAX: 1.4, // Maximum trend ratio
   TREND_WEIGHT: 0.6, // Weight for trend-based adjustments
-} as const;
-
-/**
- * ACWR-based recommendation adjustments
- *
- * Multipliers applied to recommendations based on ACWR status.
- * Higher ACWR (injury risk) leads to reduced recommendations.
- */
-export const ACWR_RECOMMENDATION_ADJUSTMENTS = {
-  HIGH_RISK_MULTIPLIER: 0.8, // Reduce by 20% when ACWR > 1.5
-  MODERATE_RISK_MULTIPLIER: 0.9, // Reduce by 10% when ACWR > 1.3
-  SAFE_PROGRESSION_MULTIPLIER: 1.05, // Allow 5% more when ACWR < 0.8
 } as const;
 
 /**

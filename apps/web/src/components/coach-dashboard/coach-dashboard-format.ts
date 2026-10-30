@@ -10,8 +10,6 @@ export function alertText(alert: CoachAlertDto): string {
         location: alert.location,
         score: Number(alert.painScore.toFixed(1)),
       });
-    case 'load_spike':
-      return m.coach_alert_load_spike({ ratio: alert.acwr.toFixed(1) });
     case 'inactive':
       return alert.days === null
         ? m.coach_alert_never_active()

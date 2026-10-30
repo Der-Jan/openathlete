@@ -33,8 +33,6 @@ const weekSchema = z.object({
     .optional()
     .describe('Not over yet: its form assumes the remaining sessions are done'),
   recommendedLoad: z.object({ min: z.number(), max: z.number() }),
-  acuteChronicRatio: z.number().optional(),
-  injuryRisk: z.string().optional(),
 });
 
 const trainingLoadOutput = z.object({
@@ -183,7 +181,7 @@ export const registerLoadTools: ToolRegistrar = (server, ctx, deps) => {
           athleteId: scope.athleteId,
           today: scope.today,
           explanation:
-            'Load is TRIMP: heart rate based for activities, estimated from duration and effort for planned sessions. Form (TSB): below -10 heavy fatigue (overreaching), -10 to +25 balanced, above +25 losing fitness; aim for +5 to +15 on race day, after a taper. Raise the weekly load by 5-10% at most, with a lighter week every 3 or 4 weeks.',
+            'Load is TRIMP: heart rate based for activities, estimated from duration and effort for planned sessions. Form (TSB) describes the balance of recent load and fitness, it does not diagnose: below -20 load is well above fitness, -20 to +25 balanced, above +25 well below it. Before a race, about two weeks of taper: volume down 40 to 60%, intensity kept. Raise the load gradually, with a lighter week every 3 or 4 weeks.',
           weeks: weeks.map((week) => ({
             weekStart: dateKey(week.weekStart),
             doneLoad: round(week.actualLoad),
@@ -197,10 +195,6 @@ export const registerLoadTools: ToolRegistrar = (server, ctx, deps) => {
               min: round(week.recommendedMin),
               max: round(week.recommendedMax),
             },
-            ...(week.acwr !== undefined && {
-              acuteChronicRatio: round(week.acwr, 2),
-            }),
-            ...(week.acwrStatus && { injuryRisk: week.acwrStatus }),
           })),
           ...(days && {
             days: days.map((day) => ({

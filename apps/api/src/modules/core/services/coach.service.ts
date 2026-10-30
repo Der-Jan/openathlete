@@ -8,7 +8,6 @@ import {
   coachDashboardResponseSchema,
 } from '@openathlete/shared';
 
-import { ACWR_HIGH_RISK_THRESHOLD } from 'src/common/constants/training-formulas.constants';
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 
@@ -43,7 +42,6 @@ export class CoachService {
         ctl: metrics.ctl,
         atl: metrics.atl,
         tsb: metrics.tsb,
-        acwr: metrics.acwr,
       };
     } catch (error) {
       // One athlete's load must not take the whole dashboard down
@@ -224,9 +222,6 @@ export class CoachService {
             location: pain.location,
             painScore: pain.painScore,
           });
-        }
-        if (form?.acwr != null && form.acwr > ACWR_HIGH_RISK_THRESHOLD) {
-          alerts.push({ type: 'load_spike', acwr: form.acwr });
         }
         const idleDays = lastActivity
           ? Math.floor((now.getTime() - lastActivity.getTime()) / DAY_MS)
