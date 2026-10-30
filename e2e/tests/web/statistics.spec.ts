@@ -43,7 +43,7 @@ test('statistics read the last weeks, by section, with filters in the URL', asyn
   await expect(page.getByText('Estimate').first()).toBeVisible();
 
   // A sport brings its trends, and the choice stays in the URL
-  await expect(page.getByText('Choose a sport')).toBeVisible();
+  await expect(page.getByText('Choose a sport').first()).toBeVisible();
   await page.getByRole('combobox', { name: 'Sport' }).click();
   await page.getByRole('option', { name: 'Running', exact: true }).click();
   await expect(page).toHaveURL(/sport=RUNNING/);
@@ -51,6 +51,10 @@ test('statistics read the last weeks, by section, with filters in the URL', asyn
   await pace.scrollIntoViewIfNeeded();
   // One run: a single point, without a line to draw
   await expect(pace.locator('circle[r="3"]').first()).toBeVisible();
+
+  const performance = page.locator('#performance');
+  await performance.scrollIntoViewIfNeeded();
+  await expect(performance.getByText('New records')).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole('combobox', { name: 'Sport' })).toContainText(

@@ -35,6 +35,32 @@ export const METRIC_REGISTRY = {
   ctl: { verdict: 'estimate', sources: [CLARKE_SKIBA, IMBACH] },
   atl: { verdict: 'estimate', sources: [CLARKE_SKIBA, IMBACH] },
   tsb: { verdict: 'estimate', sources: [CLARKE_SKIBA, IMBACH] },
+  criticalSpeed: {
+    verdict: 'estimate',
+    sources: [
+      {
+        label: 'Smyth & Muniz-Pumares 2020',
+        url: 'https://doi.org/10.1249/MSS.0000000000002412',
+      },
+      {
+        label: 'Jones et al. 2010',
+        url: 'https://doi.org/10.1249/MSS.0b013e3181d9cf7f',
+      },
+    ],
+  },
+  criticalPower: {
+    verdict: 'reserved',
+    sources: [
+      {
+        label: 'Jones et al. 2010',
+        url: 'https://doi.org/10.1249/MSS.0b013e3181d9cf7f',
+      },
+      {
+        label: 'Karsten et al. 2014',
+        url: 'https://doi.org/10.1007/s00421-014-3001-z',
+      },
+    ],
+  },
   gap: {
     verdict: 'reserved',
     sources: [

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { GetRecordsQueryDto } from '@openathlete/shared';
 
@@ -7,7 +7,10 @@ import { recordKeys } from './record.keys';
 
 export const useGetRecordsQuery = (
   query: GetRecordsQueryDto,
-  { enabled = true }: { enabled?: boolean } = {},
+  {
+    enabled = true,
+    keepPrevious = false,
+  }: { enabled?: boolean; keepPrevious?: boolean } = {},
 ) =>
   useQuery({
     queryFn: () => RecordAPI.getRecords(query),
@@ -19,6 +22,7 @@ export const useGetRecordsQuery = (
       query.to?.toISOString(),
     ],
     enabled,
+    ...(keepPrevious && { placeholderData: keepPreviousData }),
   });
 
 export const useGetRecordSportsQuery = (athleteId?: number) =>

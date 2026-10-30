@@ -1,5 +1,6 @@
 import { useStatisticsFiltersQuery } from '@/api/statistics';
 import { LoadSection } from '@/components/statistics/load-section';
+import { PerformanceSection } from '@/components/statistics/performance-section';
 import { RegularitySection } from '@/components/statistics/regularity-section';
 import { StatisticsFilters } from '@/components/statistics/statistics-filters';
 import { SummarySection } from '@/components/statistics/summary-section';
@@ -39,6 +40,12 @@ export function StatisticsView({ athleteId }: P) {
       <VolumeSection athleteId={athleteId} period={period} sport={sport} />
       <RegularitySection athleteId={athleteId} period={period} sport={sport} />
       <LoadSection athleteId={athleteId} period={period} />
+      <PerformanceSection
+        athleteId={athleteId}
+        period={period}
+        compared={compared}
+        sport={sport}
+      />
       <TrendsSection athleteId={athleteId} period={period} sport={sport} />
     </div>
   );

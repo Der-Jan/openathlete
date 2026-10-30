@@ -30,6 +30,16 @@ const COPY: Record<
     what: m.metric_tsb_what,
     limits: m.metric_tsb_limits,
   },
+  criticalSpeed: {
+    name: m.statistics_critical_speed,
+    what: m.metric_critical_speed_what,
+    limits: m.metric_critical_speed_limits,
+  },
+  criticalPower: {
+    name: m.statistics_critical_power,
+    what: m.metric_critical_power_what,
+    limits: m.metric_critical_power_limits,
+  },
   gap: { name: m.gap, what: m.metric_gap_what, limits: m.metric_gap_limits },
 };
 
