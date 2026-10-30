@@ -52,10 +52,6 @@ export const paths: Paths = {
       root: `${ROOTS.DASHBOARD}/statistics`,
       athleteId: `${ROOTS.DASHBOARD}/statistics/:athleteId`,
     },
-    progression: {
-      root: `${ROOTS.DASHBOARD}/progression`,
-      athleteId: `${ROOTS.DASHBOARD}/progression/:athleteId`,
-    },
     records: {
       root: `${ROOTS.DASHBOARD}/records`,
       athleteId: `${ROOTS.DASHBOARD}/records/:athleteId`,

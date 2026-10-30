@@ -1,5 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 
+import { SPORT_TYPE } from '@openathlete/shared';
+
 import { CaslAbilityFactory } from 'src/modules/auth';
 import { AuthUser } from 'src/modules/auth/decorators/user.decorator';
 import {
@@ -10,6 +12,7 @@ import {
 import { PrismaService } from 'src/modules/prisma/services/prisma.service';
 
 import { StatisticsService } from './statistics.service';
+import { TrainingLoadService } from './training-load.service';
 
 const databaseUrl = process.env.INTEGRATION_DATABASE_URL;
 if (!databaseUrl)
@@ -37,7 +40,12 @@ describe('StatisticsService (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = new PrismaService({ datasourceUrl: databaseUrl });
     await prisma.$connect();
-    service = new StatisticsService(prisma, new CaslAbilityFactory());
+    const abilities = new CaslAbilityFactory();
+    service = new StatisticsService(
+      prisma,
+      abilities,
+      new TrainingLoadService(prisma, abilities),
+    );
   });
 
   afterAll(async () => {
@@ -54,81 +62,235 @@ describe('StatisticsService (PostgreSQL)', () => {
     for (const sql of accountFixtureSql) await prisma.$executeRawUnsafe(sql);
   });
 
-  it('sums each week by sport, empty weeks included', async () => {
-    // Next to the fixture's run on Tuesday 6 January 2026: a ride on Sunday
-    // 18 January, the last day of its week
-    await prisma.event.create({
+  /** An activity of the athlete, with what a test cares about */
+  async function activity(
+    externalId: string,
+    start: string,
+    data: {
+      sport?: 'RUNNING' | 'CYCLING';
+      distance?: number;
+      movingTime?: number;
+      averageHeartrate?: number;
+      averageGapSpeed?: number;
+    } = {},
+  ) {
+    const startDate = new Date(start);
+    return prisma.event.create({
       data: {
-        name: 'Ride',
+        name: externalId,
         type: 'ACTIVITY',
-        startDate: new Date('2026-01-18T22:00:00Z'),
-        endDate: new Date('2026-01-18T23:30:00Z'),
+        startDate,
+        // An hour of elapsed time, pauses included
+        endDate: new Date(startDate.getTime() + 3600_000),
         athleteId: DELETED_ATHLETE_ID,
         activity: {
           create: {
-            sport: 'CYCLING',
-            distance: 40000,
-            elevationGain: 300,
-            movingTime: 5400,
-            averageSpeed: 7.4,
-            maxSpeed: 12,
-            externalId: 'ride',
+            sport: 'RUNNING',
+            distance: 10000,
+            elevationGain: 100,
+            movingTime: 3000,
+            averageSpeed: 3,
+            maxSpeed: 5,
+            externalId,
+            ...data,
           },
         },
       },
     });
+  }
 
-    const weeks = await service.getWeeklyVolume(
+  const period = {
+    athleteId: DELETED_ATHLETE_ID,
+    from: new Date('2026-03-01T00:00:00Z'),
+    to: new Date('2026-03-31T23:59:59Z'),
+  };
+
+  it('totals a period by sport, on the time in motion', async () => {
+    await activity('run', '2026-03-10T08:00:00Z');
+    await activity('ride', '2026-03-11T08:00:00Z', {
+      sport: 'CYCLING',
+      movingTime: 5000,
+    });
+
+    const { totals, sports, compared } = await service.getOverview(
       athlete,
-      DELETED_ATHLETE_ID,
-      4,
-      new Date('2026-01-21T12:00:00Z'),
+      period,
     );
+    expect(totals).toMatchObject({
+      movingTime: 8000,
+      distance: 20000,
+      elevationGain: 200,
+      count: 2,
+    });
+    // The most practised first
+    expect(sports.map(({ sport }) => sport)).toEqual(['CYCLING', 'RUNNING']);
+    expect(compared).toBeNull();
+  });
 
-    expect(weeks.map((week) => week.weekStart.toISOString())).toEqual([
-      '2025-12-29T00:00:00.000Z',
-      '2026-01-05T00:00:00.000Z',
-      '2026-01-12T00:00:00.000Z',
-      '2026-01-19T00:00:00.000Z',
-    ]);
-    expect(weeks[0].sports).toEqual([]);
-    expect(weeks[1].sports).toEqual([
-      expect.objectContaining({ sport: 'RUNNING', distance: 10000, count: 1 }),
-    ]);
-    expect(weeks[2].sports).toEqual([
+  it('adds up the TRIMP load of the activities, without its other kinds', async () => {
+    const run = await activity('run', '2026-03-10T08:00:00Z');
+    const { eventActivityId } = (await prisma.eventActivity.findUnique({
+      where: { eventId: run.eventId },
+    }))!;
+    for (const [type, value] of [
+      ['TRIMP', 70],
+      ['FOSTER_RPE', 300],
+    ] as const) {
+      const { trainingLoadCalculationId } =
+        await prisma.trainingLoadCalculation.upsert({
+          where: {
+            athleteId_type: { athleteId: DELETED_ATHLETE_ID, type },
+          },
+          create: { athleteId: DELETED_ATHLETE_ID, type },
+          update: {},
+        });
+      await prisma.trainingLoadEntry.create({
+        data: {
+          date: new Date('2026-03-10'),
+          value,
+          calculationId: trainingLoadCalculationId,
+          activityId: eventActivityId,
+        },
+      });
+    }
+    const { totals } = await service.getOverview(athlete, period);
+    expect(totals.load).toBe(70);
+  });
+
+  it('compares a period with another, for one sport', async () => {
+    await activity('now', '2026-03-10T08:00:00Z');
+    await activity('before', '2026-02-10T08:00:00Z');
+    await activity('other sport', '2026-02-11T08:00:00Z', {
+      sport: 'CYCLING',
+    });
+
+    const { compared } = await service.getOverview(athlete, {
+      ...period,
+      sport: 'RUNNING' as SPORT_TYPE,
+      compareFrom: new Date('2026-02-01T00:00:00Z'),
+      compareTo: new Date('2026-02-28T23:59:59Z'),
+    });
+    expect(compared?.count).toBe(1);
+  });
+
+  it('buckets on the calendar of the athlete, empty buckets included', async () => {
+    await prisma.user.update({
+      where: { userId: DELETED_USER_ID },
+      data: { timeZone: 'Pacific/Auckland' },
+    });
+    // Monday 16 March in Auckland, still Sunday in UTC
+    await activity('monday', '2026-03-15T20:00:00Z');
+
+    const { granularity, buckets } = await service.getVolume(
+      athlete,
       {
-        sport: 'CYCLING',
-        duration: 5400,
-        distance: 40000,
-        elevationGain: 300,
+        athleteId: DELETED_ATHLETE_ID,
+        from: new Date('2026-02-28T12:00:00Z'),
+        to: new Date('2026-05-30T12:00:00Z'),
+      },
+      new Date('2026-06-15T00:00:00Z'),
+    );
+    expect(granularity).toBe('week');
+    const week = buckets.find(({ period }) => period === '2026-03-16');
+    expect(week?.sports).toEqual([
+      {
+        sport: 'RUNNING',
+        movingTime: 3000,
+        distance: 10000,
+        elevationGain: 100,
         count: 1,
       },
     ]);
-    expect(weeks[3].sports).toEqual([]);
+    expect(
+      buckets.find(({ period }) => period === '2026-03-23')?.sports,
+    ).toEqual([]);
+    // The period starts on 1 March there, a Sunday: its week is cut
+    expect(buckets[0]).toMatchObject({ period: '2026-02-23', partial: true });
   });
 
-  it('lets the athlete read their own statistics', async () => {
-    await expect(
-      service.getStatisticsForPeriod(
-        athlete,
-        DELETED_ATHLETE_ID,
-        new Date('2026-01-01'),
-        new Date('2026-02-01'),
-      ),
-    ).resolves.toMatchObject({ count: 1 });
+  it('weighs averages by the time in motion', async () => {
+    await activity('long', '2026-03-10T08:00:00Z', {
+      movingTime: 9000,
+      distance: 18000,
+      averageHeartrate: 140,
+      averageGapSpeed: 2,
+    });
+    await activity('short', '2026-03-11T08:00:00Z', {
+      movingTime: 1000,
+      distance: 4000,
+      averageHeartrate: 180,
+    });
+
+    const { buckets } = await service.getTrends(athlete, {
+      athleteId: DELETED_ATHLETE_ID,
+      from: new Date('2026-01-01T00:00:00Z'),
+      to: new Date('2026-12-31T00:00:00Z'),
+      sport: 'RUNNING' as SPORT_TYPE,
+    });
+    const march = buckets.find(({ period }) => period === '2026-03-01');
+    expect(march).toMatchObject({
+      count: 2,
+      distancePerActivity: 11000,
+      averageSpeed: 2.2,
+      averageHeartrate: 144,
+      // Only the activity that has the figure counts
+      averageGapSpeed: 2,
+    });
+    expect(buckets.find(({ period }) => period === '2026-04-01')).toMatchObject(
+      { count: 0, averageSpeed: null },
+    );
   });
 
-  it("refuses another athlete's statistics", async () => {
+  it('offers the sports of the athlete, the most practised first', async () => {
+    await activity('ride', '2026-03-11T08:00:00Z', {
+      sport: 'CYCLING',
+      movingTime: 90000,
+    });
+    const { sports, firstActivityDate } = await service.getFilters(
+      athlete,
+      DELETED_ATHLETE_ID,
+    );
+    expect(sports).toEqual(['CYCLING', 'RUNNING']);
+    // The fixture's run
+    expect(firstActivityDate?.toISOString()).toBe('2026-01-06T00:00:00.000Z');
+  });
+
+  it('gives weeks of load on long periods, with their last day of form', async () => {
+    const long = await service.getLoad(athlete, {
+      athleteId: DELETED_ATHLETE_ID,
+      from: new Date('2024-01-01T00:00:00Z'),
+      to: new Date('2026-01-01T00:00:00Z'),
+    });
+    expect(long.granularity).toBe('week');
+    expect(long.points.length).toBeLessThan(110);
+    expect(long.points[0].date).toBe('2024-01-01');
+  });
+
+  it('never reads the recording of an activity', async () => {
+    const queries = jest.spyOn(prisma, '$queryRaw');
+    await service.getOverview(athlete, period);
+    await service.getVolume(athlete, period);
+    await service.getTrends(athlete, {
+      ...period,
+      sport: 'RUNNING' as SPORT_TYPE,
+    });
+    await service.getFilters(athlete, DELETED_ATHLETE_ID);
+    const sql = queries.mock.calls
+      .map(([template]) => (template as TemplateStringsArray).join(' '))
+      .join(' ');
+    queries.mockRestore();
+    expect(sql).not.toMatch(/stream|a\.\*|SELECT \*/);
+  });
+
+  it('refuses the sections of an athlete the user cannot read', async () => {
+    await expect(service.getVolume(stranger, period)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(service.getOverview(stranger, period)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
     await expect(
-      service.getWeeklyVolume(stranger, DELETED_ATHLETE_ID, 4),
-    ).rejects.toThrow(ForbiddenException);
-    await expect(
-      service.getStatisticsForPeriod(
-        stranger,
-        DELETED_ATHLETE_ID,
-        new Date('2026-01-01'),
-        new Date('2026-02-01'),
-      ),
-    ).rejects.toThrow(ForbiddenException);
+      service.getFilters(stranger, DELETED_ATHLETE_ID),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

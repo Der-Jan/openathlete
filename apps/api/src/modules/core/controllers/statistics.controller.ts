@@ -1,13 +1,6 @@
 import { ZodValidationPipe } from 'nestjs-zod';
 
-import {
-  BadRequestException,
-  Controller,
-  Get,
-  ParseIntPipe,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
@@ -17,11 +10,16 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { Athlete, SportType } from '@openathlete/database';
+import { SportType } from '@openathlete/database';
 import {
-  GetWeeklyVolumeQueryDto,
-  WEEKLY_VOLUME_MAX_WEEKS,
-  getWeeklyVolumeQuerySchema,
+  GetStatisticsFiltersQueryDto,
+  GetStatisticsOverviewQueryDto,
+  GetStatisticsSectionQueryDto,
+  GetStatisticsTrendsQueryDto,
+  getStatisticsFiltersQuerySchema,
+  getStatisticsOverviewQuerySchema,
+  getStatisticsSectionQuerySchema,
+  getStatisticsTrendsQuerySchema,
 } from '@openathlete/shared';
 
 import { UserTypeGuard } from 'src/modules/auth';
@@ -36,169 +34,123 @@ export class StatisticsController {
 
   @UseGuards(AuthGuard('jwt'), UserTypeGuard)
   @ApiBearerAuth()
-  @Get()
+  @Get('filters')
   @ApiOperation({
-    summary: 'Get statistics for a specific athlete and period',
+    summary: 'Sports and first activity of an athlete',
     description:
-      'Retrieves aggregated statistics for a specific athlete over a given time period. Returns overall statistics (total duration, distance, elevation gain, activity count) and breakdown by sport. Only includes activities (event_type=ACTIVITY) within the specified date range. Uses CASL authorization to verify that the user has read access to the athlete. Statistics are computed from actual activity data: duration is calculated from start_date to end_date, distance and elevation gain are summed from activity records.',
+      'What the statistics page offers as filters: the sports of the athlete, the most practised first, and the date of their first activity.',
   })
-  @ApiQuery({
-    name: 'athleteId',
-    type: Number,
-    description: 'ID of the athlete to get statistics for',
-    example: 1,
-    required: true,
-  })
-  @ApiQuery({
-    name: 'start',
-    type: String,
-    format: 'date-time',
-    description: 'Start date of the period (ISO 8601 format)',
-    example: '2024-01-01T00:00:00.000Z',
-    required: true,
-  })
-  @ApiQuery({
-    name: 'end',
-    type: String,
-    format: 'date-time',
-    description: 'End date of the period (ISO 8601 format)',
-    example: '2024-01-31T23:59:59.999Z',
-    required: true,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Statistics retrieved successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        duration: {
-          type: 'number',
-          description: 'Total duration of all activities in seconds',
-          example: 72000,
-        },
-        distance: {
-          type: 'number',
-          description: 'Total distance covered in meters',
-          example: 50000,
-        },
-        elevationGain: {
-          type: 'number',
-          description: 'Total elevation gain in meters',
-          example: 1200,
-        },
-        count: {
-          type: 'number',
-          description: 'Total number of activities',
-          example: 15,
-        },
-        sports: {
-          type: 'array',
-          description: 'Statistics broken down by sport',
-          items: {
-            type: 'object',
-            properties: {
-              sport: {
-                type: 'string',
-                enum: Object.values(SportType),
-                example: 'RUNNING',
-              },
-              duration: {
-                type: 'number',
-                description: 'Total duration for this sport in seconds',
-                example: 36000,
-              },
-              distance: {
-                type: 'number',
-                description: 'Total distance for this sport in meters',
-                example: 30000,
-              },
-              elevationGain: {
-                type: 'number',
-                description: 'Total elevation gain for this sport in meters',
-                example: 800,
-              },
-              count: {
-                type: 'number',
-                description: 'Number of activities for this sport',
-                example: 10,
-              },
-            },
-            required: [
-              'sport',
-              'duration',
-              'distance',
-              'elevationGain',
-              'count',
-            ],
-          },
-        },
-      },
-      required: ['duration', 'distance', 'elevationGain', 'count', 'sports'],
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description:
-      'Bad request - invalid date format or start date is not before end date',
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized - invalid or missing authentication token',
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - user does not have read access to this athlete',
-  })
-  getStatisticsForPeriod(
+  @ApiQuery({ name: 'athleteId', type: Number })
+  @ApiResponse({ status: 403, description: 'Not allowed to read the athlete' })
+  @ApiResponse({ status: 404, description: 'Athlete not found' })
+  getFilters(
     @JwtUser() user: AuthUser,
-    @Query('athleteId', ParseIntPipe) athleteId: Athlete['athleteId'],
-    @Query('start') start: string,
-    @Query('end') end: string,
+    @Query(new ZodValidationPipe(getStatisticsFiltersQuerySchema))
+    query: GetStatisticsFiltersQueryDto,
   ) {
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-      throw new BadRequestException('Invalid date format');
-    }
-
-    if (startDate >= endDate) {
-      throw new BadRequestException('Start date must be before end date');
-    }
-
-    return this.statisticsService.getStatisticsForPeriod(
-      user,
-      athleteId,
-      startDate,
-      endDate,
-    );
+    return this.statisticsService.getFilters(user, query.athleteId);
   }
 
   @UseGuards(AuthGuard('jwt'), UserTypeGuard)
   @ApiBearerAuth()
-  @Get('weekly-volume')
+  @Get('overview')
   @ApiOperation({
-    summary: 'Weekly training volume',
+    summary: 'Totals of a period',
     description:
-      'Time, distance, elevation gain and activity count of each of the last weeks (Monday to Sunday, UTC), by sport. Weeks without activity are included, empty.',
+      'Time in motion, distance, elevation gain, activity count and TRIMP load of a period, overall and by sport, and the totals of a period to compare with.',
   })
   @ApiQuery({ name: 'athleteId', type: Number })
+  @ApiQuery({ name: 'from', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'to', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'sport', enum: SportType, required: false })
   @ApiQuery({
-    name: 'weeks',
-    type: Number,
+    name: 'compareFrom',
+    type: String,
+    format: 'date-time',
     required: false,
-    description: `Weeks to return, the current one included (default 26, at most ${WEEKLY_VOLUME_MAX_WEEKS})`,
   })
+  @ApiQuery({
+    name: 'compareTo',
+    type: String,
+    format: 'date-time',
+    required: false,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid period' })
   @ApiResponse({ status: 403, description: 'Not allowed to read the athlete' })
   @ApiResponse({ status: 404, description: 'Athlete not found' })
-  getWeeklyVolume(
+  getOverview(
     @JwtUser() user: AuthUser,
-    @Query(new ZodValidationPipe(getWeeklyVolumeQuerySchema))
-    query: GetWeeklyVolumeQueryDto,
+    @Query(new ZodValidationPipe(getStatisticsOverviewQuerySchema))
+    query: GetStatisticsOverviewQueryDto,
   ) {
-    return this.statisticsService.getWeeklyVolume(
-      user,
-      query.athleteId,
-      query.weeks,
-    );
+    return this.statisticsService.getOverview(user, query);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
+  @Get('volume')
+  @ApiOperation({
+    summary: 'Volume of a period, bucket by bucket',
+    description:
+      "Time in motion, distance, elevation gain and activity count by sport, by day, week or month depending on the period. Buckets follow the athlete's calendar; empty ones are included, and those the period cuts or that are still running are marked partial.",
+  })
+  @ApiQuery({ name: 'athleteId', type: Number })
+  @ApiQuery({ name: 'from', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'to', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'sport', enum: SportType, required: false })
+  @ApiResponse({ status: 400, description: 'Invalid period' })
+  @ApiResponse({ status: 403, description: 'Not allowed to read the athlete' })
+  @ApiResponse({ status: 404, description: 'Athlete not found' })
+  getVolume(
+    @JwtUser() user: AuthUser,
+    @Query(new ZodValidationPipe(getStatisticsSectionQuerySchema))
+    query: GetStatisticsSectionQueryDto,
+  ) {
+    return this.statisticsService.getVolume(user, query);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
+  @Get('trends')
+  @ApiOperation({
+    summary: "How a sport's averages evolve",
+    description:
+      'Distance and elevation per activity, and speed, grade adjusted speed, heart rate, cadence and power averaged over time in motion, bucket by bucket. Averages only mean something within a sport, so the sport is required.',
+  })
+  @ApiQuery({ name: 'athleteId', type: Number })
+  @ApiQuery({ name: 'from', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'to', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'sport', enum: SportType })
+  @ApiResponse({ status: 400, description: 'Invalid period or sport' })
+  @ApiResponse({ status: 403, description: 'Not allowed to read the athlete' })
+  @ApiResponse({ status: 404, description: 'Athlete not found' })
+  getTrends(
+    @JwtUser() user: AuthUser,
+    @Query(new ZodValidationPipe(getStatisticsTrendsQuerySchema))
+    query: GetStatisticsTrendsQueryDto,
+  ) {
+    return this.statisticsService.getTrends(user, query);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
+  @Get('load')
+  @ApiOperation({
+    summary: 'Load and form of a period',
+    description:
+      'TRIMP load, fitness (CTL), fatigue (ATL) and form (TSB), by day, or by week on periods over 400 days.',
+  })
+  @ApiQuery({ name: 'athleteId', type: Number })
+  @ApiQuery({ name: 'from', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'to', type: String, format: 'date-time' })
+  @ApiResponse({ status: 400, description: 'Invalid period' })
+  @ApiResponse({ status: 403, description: 'Not allowed to read the athlete' })
+  @ApiResponse({ status: 404, description: 'Athlete not found' })
+  getLoad(
+    @JwtUser() user: AuthUser,
+    @Query(new ZodValidationPipe(getStatisticsSectionQuerySchema))
+    query: GetStatisticsSectionQueryDto,
+  ) {
+    return this.statisticsService.getLoad(user, query);
   }
 }

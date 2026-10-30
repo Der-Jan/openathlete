@@ -1,30 +1,73 @@
-import { QueryOptions, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
-import { StatisticsAPI } from './statistics.api';
+import { SPORT_TYPE } from '@openathlete/shared';
+
+import { StatisticsAPI, StatisticsSectionParams } from './statistics.api';
 import { statisticsKeys } from './statistics.keys';
 
-export const useGetStatisticsForPeriodQuery = (
-  athleteId: number,
-  startDate: Date,
-  endDate: Date,
-  opt?: QueryOptions<
-    Awaited<ReturnType<typeof StatisticsAPI.getStatisticsForPeriod>>
-  >,
+const STALE_TIME = 60_000;
+
+/**
+ * Sections load on their own, once near the screen, and keep their previous
+ * figures on screen while the filters change.
+ */
+const sectionOptions = (enabled: boolean) => ({
+  enabled,
+  staleTime: STALE_TIME,
+  placeholderData: keepPreviousData,
+});
+
+const paramsKey = ({ athleteId, from, to, sport }: StatisticsSectionParams) =>
+  [athleteId, from.toISOString(), to.toISOString(), sport ?? null] as const;
+
+export const useStatisticsFiltersQuery = (athleteId: number) =>
+  useQuery({
+    queryFn: () => StatisticsAPI.getFilters(athleteId),
+    queryKey: [statisticsKeys.filters, athleteId],
+    staleTime: STALE_TIME,
+  });
+
+export const useStatisticsOverviewQuery = (
+  params: StatisticsSectionParams & { compareFrom?: Date; compareTo?: Date },
+  enabled: boolean,
 ) =>
   useQuery({
-    ...opt,
-    queryFn: () =>
-      StatisticsAPI.getStatisticsForPeriod(athleteId, startDate, endDate),
+    ...sectionOptions(enabled),
+    queryFn: () => StatisticsAPI.getOverview(params),
     queryKey: [
-      statisticsKeys.getStatisticsForPeriod,
-      athleteId,
-      startDate,
-      endDate,
+      statisticsKeys.overview,
+      ...paramsKey(params),
+      params.compareFrom?.toISOString() ?? null,
+      params.compareTo?.toISOString() ?? null,
     ],
   });
 
-export const useGetWeeklyVolumeQuery = (athleteId: number, weeks: number) =>
+export const useStatisticsVolumeQuery = (
+  params: StatisticsSectionParams,
+  enabled: boolean,
+) =>
   useQuery({
-    queryFn: () => StatisticsAPI.getWeeklyVolume(athleteId, weeks),
-    queryKey: [statisticsKeys.getWeeklyVolume, athleteId, weeks],
+    ...sectionOptions(enabled),
+    queryFn: () => StatisticsAPI.getVolume(params),
+    queryKey: [statisticsKeys.volume, ...paramsKey(params)],
+  });
+
+export const useStatisticsTrendsQuery = (
+  params: StatisticsSectionParams & { sport: SPORT_TYPE },
+  enabled: boolean,
+) =>
+  useQuery({
+    ...sectionOptions(enabled),
+    queryFn: () => StatisticsAPI.getTrends(params),
+    queryKey: [statisticsKeys.trends, ...paramsKey(params)],
+  });
+
+export const useStatisticsLoadQuery = (
+  params: Omit<StatisticsSectionParams, 'sport'>,
+  enabled: boolean,
+) =>
+  useQuery({
+    ...sectionOptions(enabled),
+    queryFn: () => StatisticsAPI.getLoad(params),
+    queryKey: [statisticsKeys.load, ...paramsKey(params)],
   });

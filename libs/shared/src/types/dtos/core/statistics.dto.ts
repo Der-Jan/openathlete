@@ -1,0 +1,157 @@
+import z from 'zod';
+
+import { SPORT_TYPE } from '../../misc';
+
+export type StatisticsGranularity = 'day' | 'week' | 'month';
+
+/** Days a chart keeps one bar a day, then one a week */
+const DAILY_MAX_DAYS = 31;
+const WEEKLY_MAX_DAYS = 200;
+
+/** Size of a chart's buckets for a period: enough to read, never too many */
+export function statisticsGranularity(
+  from: Date,
+  to: Date,
+): StatisticsGranularity {
+  const days = (to.getTime() - from.getTime()) / (24 * 3600 * 1000);
+  if (days <= DAILY_MAX_DAYS) return 'day';
+  return days <= WEEKLY_MAX_DAYS ? 'week' : 'month';
+}
+
+const statisticsPeriodSchema = z.object({
+  athleteId: z.coerce.number().int().positive(),
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  sport: z.nativeEnum(SPORT_TYPE).optional(),
+});
+
+const orderedPeriod = ({ from, to }: { from: Date; to: Date }) => from < to;
+const orderedPeriodError = { message: 'from must be before to' };
+
+export const getStatisticsSectionQuerySchema = statisticsPeriodSchema.refine(
+  orderedPeriod,
+  orderedPeriodError,
+);
+export type GetStatisticsSectionQueryDto = z.infer<
+  typeof getStatisticsSectionQuerySchema
+>;
+
+export const getStatisticsOverviewQuerySchema = statisticsPeriodSchema
+  .extend({
+    /** The period to compare with */
+    compareFrom: z.coerce.date().optional(),
+    compareTo: z.coerce.date().optional(),
+  })
+  .refine(orderedPeriod, orderedPeriodError)
+  .refine(({ compareFrom, compareTo }) => !compareFrom === !compareTo, {
+    message: 'compareFrom and compareTo go together',
+  });
+export type GetStatisticsOverviewQueryDto = z.infer<
+  typeof getStatisticsOverviewQuerySchema
+>;
+
+export const getStatisticsTrendsQuerySchema = statisticsPeriodSchema
+  .required({ sport: true })
+  .refine(orderedPeriod, orderedPeriodError);
+export type GetStatisticsTrendsQueryDto = z.infer<
+  typeof getStatisticsTrendsQuerySchema
+>;
+
+export const getStatisticsFiltersQuerySchema = z.object({
+  athleteId: z.coerce.number().int().positive(),
+});
+export type GetStatisticsFiltersQueryDto = z.infer<
+  typeof getStatisticsFiltersQuerySchema
+>;
+
+export const statisticsFiltersSchema = z.object({
+  firstActivityDate: z.coerce.date().nullable(),
+  /** Sports of the athlete, the most practised first */
+  sports: z.array(z.nativeEnum(SPORT_TYPE)),
+});
+export type StatisticsFiltersDto = z.infer<typeof statisticsFiltersSchema>;
+
+const statisticsTotalsSchema = z.object({
+  /** Seconds in motion */
+  movingTime: z.number(),
+  /** Metres */
+  distance: z.number(),
+  /** Metres */
+  elevationGain: z.number(),
+  count: z.number(),
+  /** TRIMP */
+  load: z.number(),
+});
+export type StatisticsTotalsDto = z.infer<typeof statisticsTotalsSchema>;
+
+export const statisticsOverviewSchema = z.object({
+  totals: statisticsTotalsSchema,
+  /** Totals of the compared period, null without one */
+  compared: statisticsTotalsSchema.nullable(),
+  sports: z.array(
+    statisticsTotalsSchema.extend({ sport: z.nativeEnum(SPORT_TYPE) }),
+  ),
+});
+export type StatisticsOverviewDto = z.infer<typeof statisticsOverviewSchema>;
+
+const statisticsBucketSchema = z.object({
+  /** First day of the bucket on the athlete's calendar (YYYY-MM-DD) */
+  period: z.string(),
+  /** Cut by the period or still running: not comparable with a full one */
+  partial: z.boolean(),
+});
+
+export const statisticsVolumeSchema = z.object({
+  granularity: z.enum(['day', 'week', 'month']),
+  buckets: z.array(
+    statisticsBucketSchema.extend({
+      sports: z.array(
+        statisticsTotalsSchema
+          .omit({ load: true })
+          .extend({ sport: z.nativeEnum(SPORT_TYPE) }),
+      ),
+    }),
+  ),
+});
+export type StatisticsVolumeDto = z.infer<typeof statisticsVolumeSchema>;
+
+export const statisticsTrendsSchema = z.object({
+  granularity: z.enum(['day', 'week', 'month']),
+  /**
+   * Averages are over time in motion, so a long outing weighs more than a
+   * short one. Null when no activity of the bucket has the figure.
+   */
+  buckets: z.array(
+    statisticsBucketSchema.extend({
+      count: z.number(),
+      /** Metres per activity */
+      distancePerActivity: z.number().nullable(),
+      /** Metres per activity */
+      elevationPerActivity: z.number().nullable(),
+      /** m/s */
+      averageSpeed: z.number().nullable(),
+      /** m/s */
+      averageGapSpeed: z.number().nullable(),
+      averageHeartrate: z.number().nullable(),
+      averageCadence: z.number().nullable(),
+      averageWatts: z.number().nullable(),
+    }),
+  ),
+});
+export type StatisticsTrendsDto = z.infer<typeof statisticsTrendsSchema>;
+
+export const statisticsLoadSchema = z.object({
+  granularity: z.enum(['day', 'week']),
+  /** A week holds its total load, and its form on its last day */
+  points: z.array(
+    z.object({
+      /** YYYY-MM-DD, UTC like training load */
+      date: z.string(),
+      load: z.number(),
+      ctl: z.number(),
+      atl: z.number(),
+      tsb: z.number(),
+    }),
+  ),
+});
+export type StatisticsLoadDto = z.infer<typeof statisticsLoadSchema>;

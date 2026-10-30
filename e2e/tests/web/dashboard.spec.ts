@@ -8,7 +8,6 @@ import {
 const PAGES = [
   'calendar',
   'statistics',
-  'progression',
   'records',
   'metrics',
   'settings',

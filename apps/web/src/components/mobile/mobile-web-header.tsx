@@ -18,7 +18,6 @@ export function MobileWebHeader() {
   const titles: Record<string, string> = {
     calendar: m.calendar(),
     statistics: m.statistics(),
-    progression: m.progression(),
     records: m.records(),
     metrics: m.metrics(),
     settings: m.settings(),
@@ -27,7 +26,7 @@ export function MobileWebHeader() {
     coach: m.dashboard(),
   };
   const athleteId =
-    /^\/dashboard\/(?:calendar|statistics|progression|records|metrics|settings)\/(\d+)$/.exec(
+    /^\/dashboard\/(?:calendar|statistics|records|metrics|settings)\/(\d+)$/.exec(
       pathname,
     )?.[1];
   const athlete = athletes?.find(

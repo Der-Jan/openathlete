@@ -153,27 +153,11 @@ export const routes = {
       `/athlete/invitations/${invitationId}/reject`,
   },
   statistics: {
-    getStatisticsForPeriod: (
-      athleteId: number,
-      startDate: string,
-      endDate: string,
-    ) => `/statistics?athleteId=${athleteId}&start=${startDate}&end=${endDate}`,
-    getWeeklyVolume: '/statistics/weekly-volume',
-  },
-  progression: {
-    getFirstActivityDate: (athleteId: number, sport?: string) =>
-      `/progression/first-activity-date?athleteId=${athleteId}${
-        sport ? `&sport=${sport}` : ''
-      }`,
-    getProgressionData: (
-      athleteId: number,
-      startDate: string,
-      endDate: string,
-      sport?: string,
-    ) =>
-      `/progression?athleteId=${athleteId}&start=${startDate}&end=${endDate}${
-        sport ? `&sport=${sport}` : ''
-      }`,
+    filters: '/statistics/filters',
+    overview: '/statistics/overview',
+    volume: '/statistics/volume',
+    trends: '/statistics/trends',
+    load: '/statistics/load',
   },
   coach: {
     dashboard: (start?: string, end?: string) =>

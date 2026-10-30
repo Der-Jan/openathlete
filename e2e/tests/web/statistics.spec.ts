@@ -7,7 +7,7 @@ import { trackPageProblems } from '../../support/page-health';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test('statistics open on the last seven days, with legends and weekly volume', async ({
+test('statistics read the last weeks, by section, with filters in the URL', async ({
   page,
   request,
 }) => {
@@ -20,24 +20,49 @@ test('statistics open on the last seven days, with legends and weekly volume', a
 
   await page.goto('/dashboard/statistics');
 
-  // The last seven days, not a calendar week that may have just started
-  await expect(page.getByRole('tab', { name: '7 days' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  const tiles = page.locator('[data-stat-tile]');
+  await expect(tiles).toHaveCount(5);
+  await expect(tiles.first()).toContainText('Time in motion');
+
   // Each pie names its sports without hovering
+  const volume = page.locator('[data-volume]');
+  await volume.scrollIntoViewIfNeeded();
   await expect(
     page.locator('[data-sport-legend="CYCLING"]').first(),
-  ).toContainText('67%');
-
-  // Weeks before the selected period are part of the volume chart
-  const volume = page.locator('[data-weekly-volume]');
-  await expect(volume.getByText('Cycling')).toBeVisible();
-  await expect(volume.getByText('Running')).toBeVisible();
+  ).toContainText('%');
   await expect(volume.locator('.recharts-rectangle').first()).toBeVisible();
 
-  await expect(page.locator('[data-tsb-chart]')).toBeVisible();
+  const tsb = page.locator('[data-tsb-chart]');
+  await tsb.scrollIntoViewIfNeeded();
+  await expect(tsb).toBeVisible();
   await expect(page.getByText('Daily load')).toBeVisible();
+  await expect(page.getByText('Estimate').first()).toBeVisible();
+
+  // A sport brings its trends, and the choice stays in the URL
+  await expect(page.getByText('Choose a sport')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Sport' }).click();
+  await page.getByRole('option', { name: 'Running', exact: true }).click();
+  await expect(page).toHaveURL(/sport=RUNNING/);
+  const pace = page.locator('[data-trend="speed"]');
+  await pace.scrollIntoViewIfNeeded();
+  // One run: a single point, without a line to draw
+  await expect(pace.locator('circle[r="3"]').first()).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Sport' })).toContainText(
+    'Running',
+  );
 
   expect(problems).toEqual([]);
+});
+
+test('the former Progression page leads to the statistics', async ({
+  page,
+  request,
+}) => {
+  const athlete = await createAthlete(request);
+  await signIn(page, athlete);
+
+  await page.goto('/dashboard/progression');
+  await expect(page).toHaveURL(/\/dashboard\/statistics$/);
 });

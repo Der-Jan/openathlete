@@ -18,7 +18,6 @@ import { EventTemplateController } from './controllers/event-template.controller
 import { InjuryController } from './controllers/injury.controller';
 import { ManualFitImportController } from './controllers/manual-fit-import.controller';
 import { MetricController } from './controllers/metric.controller';
-import { ProgressionController } from './controllers/progression.controller';
 import { RecordController } from './controllers/record.controller';
 import { StatisticsController } from './controllers/statistics.controller';
 import { TrainingLoadController } from './controllers/training-load.controller';
@@ -56,7 +55,6 @@ import {
   TrainingMatchProcessor,
   WeatherProcessor,
 } from './services/pipeline/processors';
-import { ProgressionService } from './services/progression.service';
 import { RecordService } from './services/record.service';
 import { StatisticsService } from './services/statistics.service';
 import { TrainingLoadService } from './services/training-load.service';
@@ -81,7 +79,6 @@ import { WeatherService } from './services/weather/weather.service';
     AthleteController,
     CoachController,
     StatisticsController,
-    ProgressionController,
     RecordController,
     EquipmentController,
     InjuryController,
@@ -101,7 +98,6 @@ import { WeatherService } from './services/weather/weather.service';
     AthleteSettingsService,
     CoachService,
     StatisticsService,
-    ProgressionService,
     PrismaService,
     RecordService,
     EquipmentService,
