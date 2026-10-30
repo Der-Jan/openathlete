@@ -341,7 +341,7 @@ For a complete list of environment variables, see the `.env.example` files in ea
 > OpenAthlete is built by one developer in Grenoble, supported by the community. There are three ways to help the project thrive:
 >
 > - **Become a Supporter on OpenAthlete Cloud** — The Cloud is free; the Supporter subscription (5€/month or 50€/year) funds development and adds unlimited coached athletes and AI included every month. See [openathlete.org](https://openathlete.org).
-> - **Become a Patreon supporter** — Recurring support without using the cloud. [patreon.com/OpenAthlete](https://patreon.com/OpenAthlete).
+> - **Buy me a coffee** — One-off support without using the cloud. [buymeacoffee.com/openathlete](https://buymeacoffee.com/openathlete).
 > - **Contribute code or feedback** — Star the repo, open issues, send PRs, join the [Discord](https://discord.gg/j4PP6tDwuP).
 >
 > Self-hosting is fully supported and always free, with no limits. Supporters fund the project's long-term sustainability.
