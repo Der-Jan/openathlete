@@ -51,7 +51,7 @@ jest.mock('@garmin/fitsdk', () => {
   return { ...sdk, Decoder };
 });
 
-function activityZip() {
+function activityZip(sport = 'cycling', fileType = 'activity') {
   const sdk = process.getBuiltinModule('module').createRequire(__filename)(
     '@garmin/fitsdk',
   );
@@ -59,7 +59,7 @@ function activityZip() {
   const start =
     (Date.parse('2020-01-02T09:00:00Z') - Date.UTC(1989, 11, 31)) / 1000;
   encoder.onMesg(0, {
-    type: 'activity',
+    type: fileType,
     manufacturer: 'development',
     product: 1,
     timeCreated: start,
@@ -78,7 +78,7 @@ function activityZip() {
     totalTimerTime: 2,
     totalDistance: 6,
     totalAscent: 0,
-    sport: 'cycling',
+    sport,
   });
   const zip = new AdmZip();
   zip.addFile('synthetic-ride.fit', Buffer.from(encoder.close()));
@@ -363,6 +363,133 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
     expect(outcomes.some((v) => v.status === 'fulfilled')).toBe(true);
     expect(await prisma.garminPersonalItem.count()).toBe(1);
   });
+  it.each([
+    ['multisport', 'activity', 'FIT_MULTISPORT_UNSUPPORTED'],
+    ['cycling', 'course', 'FIT_NOT_ACTIVITY'],
+  ])(
+    'retains unsupported %s/%s files without re-downloading or counting them as matched',
+    async (sport, fileType, reason) => {
+      client.download.mockResolvedValue(activityZip(sport, fileType));
+      await service.connect(DELETED_USER_ID, dto);
+      expect(await run()).toMatchObject({
+        imported: 0,
+        matched: 0,
+        failed: 0,
+        skipped: 1,
+      });
+      expect(await run()).toMatchObject({
+        imported: 0,
+        matched: 0,
+        failed: 0,
+        skipped: 1,
+      });
+      expect(client.download).toHaveBeenCalledTimes(1);
+      const item = await prisma.garminPersonalItem.findFirstOrThrow();
+      expect(item).toMatchObject({
+        skipReason: reason,
+        eventActivityId: null,
+        needsReview: false,
+        processingPending: false,
+      });
+      expect((await connection()).status).toBe('completed');
+    },
+  );
+  it('keeps malformed/truncated archives retryable without a permanent receipt', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    client.download
+      .mockResolvedValueOnce(Buffer.from('truncated ZIP'))
+      .mockResolvedValue(activityZip());
+    expect(await run()).toMatchObject({ imported: 0, failed: 1, skipped: 0 });
+    expect(await prisma.garminPersonalItem.count()).toBe(0);
+    expect(await run()).toMatchObject({ imported: 1, failed: 0, skipped: 0 });
+    expect(client.download).toHaveBeenCalledTimes(2);
+  });
+  it('keeps transient download failures retryable without a permanent receipt', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    client.download.mockRejectedValueOnce(
+      new GarminPersonalError('unavailable'),
+    );
+    await expect(run()).rejects.toMatchObject({ code: 'unavailable' });
+    expect(await prisma.garminPersonalItem.count()).toBe(0);
+    expect(await run()).toMatchObject({ imported: 1 });
+  });
+  it('continues after a download access denial and permits a later successful retry without replacing the key', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    client.activities.mockResolvedValue([
+      { activityId: 'denied' },
+      { activityId: 'allowed' },
+    ]);
+    client.download.mockRejectedValueOnce(
+      new GarminPersonalError('access_denied'),
+    );
+    expect(await run()).toMatchObject({ imported: 1, failed: 1, skipped: 0 });
+    expect((await connection()).status).toBe('partial');
+    expect((await connection()).error).toBeNull();
+    expect(
+      await prisma.garminPersonalItem.findFirst({
+        where: { externalId: 'denied' },
+      }),
+    ).toBeNull();
+    expect(await run()).toMatchObject({ matched: 2, failed: 0 });
+    expect(client.authorize).toHaveBeenCalledTimes(1);
+    expect(client.download).toHaveBeenCalledTimes(3);
+  });
+  it('allows an activity write to take longer than the default five-second transaction', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    await prisma.$executeRawUnsafe(
+      `CREATE FUNCTION test_slow_personal_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(5.2); RETURN NEW; END $$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_slow_personal_insert BEFORE INSERT ON event_activity FOR EACH ROW EXECUTE FUNCTION test_slow_personal_insert()`,
+    );
+    try {
+      expect(await run()).toMatchObject({ imported: 1, failed: 0 });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER test_slow_personal_insert ON event_activity',
+      );
+      await prisma.$executeRawUnsafe(
+        'DROP FUNCTION test_slow_personal_insert()',
+      );
+    }
+  }, 20000);
+  it('rejects preference changes during an active import without aborting it', async () => {
+    await service.connect(DELETED_USER_ID, dto);
+    const original = await connection();
+    let release: (value: Buffer) => void = () => {};
+    let started: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    client.download.mockImplementationOnce(() => {
+      started();
+      return new Promise<Buffer>((resolve) => {
+        release = resolve;
+      });
+    });
+    const running = run();
+    await ready;
+    try {
+      const response = await send('', 'PATCH', {
+        activities: false,
+        automatic: false,
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        message: 'sync_in_progress',
+      });
+      expect((await connection()).version).toBe(original.version);
+    } finally {
+      release(activityZip());
+    }
+    await expect(running).resolves.toMatchObject({ imported: 1 });
+    await expect(
+      service.preferences(DELETED_USER_ID, {
+        activities: false,
+        automatic: false,
+      }),
+    ).resolves.toMatchObject({ preferences: { activities: false } });
+  });
   it('matches an existing Strava recording without changing edits or training links', async () => {
     await service.connect(DELETED_USER_ID, dto);
     const activity = await prisma.eventActivity.findUniqueOrThrow({
@@ -499,6 +626,13 @@ describe('Garmin Personal ownership and sync (PostgreSQL + HTTP)', () => {
     await service.enqueue(DELETED_USER_ID, range);
     expect(queue.add).toHaveBeenCalledTimes(1);
     expect(JSON.stringify([...jobs.values()])).not.toContain(dto.apiKey);
+    await expect(
+      service.preferences(DELETED_USER_ID, {
+        activities: false,
+        automatic: false,
+      }),
+    ).rejects.toThrow('sync_in_progress');
+    await run();
     await service.preferences(DELETED_USER_ID, {
       activities: false,
       automatic: false,

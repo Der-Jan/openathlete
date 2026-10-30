@@ -163,7 +163,7 @@ function PersonalConnection({ userId }: { userId: number }) {
           <div className="flex items-center gap-2">
             <Checkbox
               id="garmin-personal-activities"
-              disabled={busy}
+              disabled={busy || running}
               checked={selected.activities}
               onCheckedChange={(v) => setPreference('activities', v === true)}
             />
@@ -174,7 +174,7 @@ function PersonalConnection({ userId }: { userId: number }) {
           <div className="flex items-center gap-2">
             <Checkbox
               id="garmin-personal-automatic"
-              disabled={busy}
+              disabled={busy || running}
               checked={selected.automatic}
               onCheckedChange={(v) => setPreference('automatic', v === true)}
             />
@@ -182,6 +182,11 @@ function PersonalConnection({ userId }: { userId: number }) {
               {m.garmin_personal_automatic()}
             </Label>
           </div>
+          {running && (
+            <p className="text-sm text-muted-foreground">
+              {m.garmin_personal_preferences_locked()}
+            </p>
+          )}
           <form
             className="space-y-2"
             onSubmit={(e) => {
@@ -267,6 +272,9 @@ function PersonalConnection({ userId }: { userId: number }) {
                     failed: String(value.result.failed),
                     pending: String(value.result.pending),
                   })}
+                  {(value.result.skipped ?? 0) > 0
+                    ? ` ${m.garmin_personal_skipped({ count: String(value.result.skipped) })}`
+                    : ''}
                   {value.result.truncated
                     ? ` ${m.garmin_personal_truncated()}`
                     : ''}

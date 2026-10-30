@@ -89,6 +89,11 @@ export class GarminPersonalController {
   }
   @Patch()
   @ApiResponse({
+    status: 409,
+    description:
+      'Preferences are locked while an import is queued or running (sync_in_progress)',
+  })
+  @ApiResponse({
     status: 200,
     description: 'Sanitized connection state; never includes credentials',
   })

@@ -52,6 +52,8 @@ export const garminPersonalResultSchema = z
   .object({
     imported: z.number().int().nonnegative(),
     matched: z.number().int().nonnegative(),
+    // Older persisted results predate terminal unsupported-file receipts.
+    skipped: z.number().int().nonnegative().default(0),
     needsReview: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     pending: z.number().int().nonnegative(),

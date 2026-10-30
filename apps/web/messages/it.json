@@ -1682,5 +1682,7 @@
   "garmin_personal_truncated": "È stato raggiunto il limite di 1000 attività. Importa un intervallo più breve.",
   "garmin_personal_key_accepted": "Chiave API accettata. La connessione Garmin è salvata.",
   "garmin_personal_import_request_failed": "Impossibile avviare l’importazione delle attività. La connessione Garmin salvata è stata mantenuta. Riprova.",
-  "garmin_personal_import_failed": "Importazione delle attività non riuscita. La chiave API è stata accettata; questo errore non significa che la chiave non sia valida. Riprova più tardi."
+  "garmin_personal_import_failed": "Importazione delle attività non riuscita. La chiave API è stata accettata; questo errore non significa che la chiave non sia valida. Riprova più tardi.",
+  "garmin_personal_preferences_locked": "Le preferenze non possono essere modificate mentre un’importazione è in coda o in corso.",
+  "garmin_personal_skipped": "File non supportati ignorati: {count}."
 }

@@ -154,6 +154,64 @@ describe('Garmin Personal settings', () => {
     expect(button('garmin_personal_disconnect').disabled).toBe(false);
     expect(api.sync).not.toHaveBeenCalled();
   });
+  it.each(['queued', 'running'] as const)(
+    'locks preferences during %s work and unlocks them when finished',
+    async (status) => {
+      const data = {
+        ...disconnected,
+        connected: true,
+        preferences: { activities: true, automatic: false },
+        status,
+      };
+      api.status.mockResolvedValue(data);
+      await render();
+      for (const id of ['activities', 'automatic']) {
+        const checkbox = element.querySelector<HTMLButtonElement>(
+          '#garmin-personal-' + id,
+        )!;
+        expect(checkbox.disabled).toBe(true);
+        await act(async () => checkbox.click());
+      }
+      expect(api.preferences).not.toHaveBeenCalled();
+      expect(element.textContent).toContain(
+        'garmin_personal_preferences_locked',
+      );
+      await act(async () =>
+        cache.setQueryData(['garmin-personal', 1], {
+          ...data,
+          status: 'completed',
+        }),
+      );
+      await render();
+      expect(
+        element.querySelector<HTMLButtonElement>('#garmin-personal-activities')!
+          .disabled,
+      ).toBe(false);
+      expect(
+        element.querySelector<HTMLButtonElement>('#garmin-personal-automatic')!
+          .disabled,
+      ).toBe(false);
+    },
+  );
+  it('shows unsupported files as skipped separately from failures and matches', async () => {
+    api.status.mockResolvedValue({
+      ...disconnected,
+      connected: true,
+      status: 'completed',
+      result: {
+        imported: 0,
+        matched: 0,
+        skipped: 1,
+        failed: 0,
+        needsReview: 0,
+        pending: 0,
+        truncated: false,
+      },
+    });
+    await render();
+    expect(element.textContent).toContain('garmin_personal_skipped');
+    expect(element.querySelector('[role=alert]')).toBeNull();
+  });
   it('separates an import failure from the accepted key', async () => {
     api.status.mockResolvedValue({
       ...disconnected,

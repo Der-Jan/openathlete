@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -44,6 +45,7 @@ export interface PersonalJob extends GarminPersonalSync {
 const emptyResult = (): GarminPersonalResult => ({
   imported: 0,
   matched: 0,
+  skipped: 0,
   needsReview: 0,
   failed: 0,
   pending: 0,
@@ -165,8 +167,15 @@ export class GarminPersonalService {
       });
       if (!c?.encryptedCredentials || c.status === 'key_required')
         throw new BadRequestException('key_required');
-      await tx.garminPersonalConnection.update({
-        where: { id: c.id },
+      // The conditional write also covers a worker acquiring its lease after
+      // this transaction read the connection. Do not invalidate an active job.
+      const changed = await tx.garminPersonalConnection.updateMany({
+        where: {
+          id: c.id,
+          version: c.version,
+          status: { notIn: ['queued', 'running'] },
+          OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }],
+        },
         data: {
           ...preferences,
           version: { increment: 1 },
@@ -176,6 +185,7 @@ export class GarminPersonalService {
           error: null,
         },
       });
+      if (!changed.count) throw new ConflictException('sync_in_progress');
     });
     return this.status(userId);
   }
@@ -262,87 +272,141 @@ export class GarminPersonalService {
     name: string,
     fit: ReturnType<typeof prepareManualFit>,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await this.current(tx, c, 'activities');
-      const identity = { connectionId: c.id, externalId };
-      const existing = await tx.garminPersonalItem.findUnique({
-        where: { connectionId_externalId: identity },
-      });
-      if (existing) return { item: existing, created: false };
-      const original = await tx.eventActivity.findFirst({
-        where: {
-          provider: 'GARMIN',
-          externalId,
-          event: { athleteId: c.athleteId },
-        },
-      });
-      const near = original
-        ? []
-        : await tx.event.findMany({
-            where: {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.current(tx, c, 'activities');
+        const identity = { connectionId: c.id, externalId };
+        const existing = await tx.garminPersonalItem.findUnique({
+          where: { connectionId_externalId: identity },
+        });
+        if (existing) return { item: existing, created: false };
+        const original = await tx.eventActivity.findFirst({
+          where: {
+            provider: 'GARMIN',
+            externalId,
+            event: { athleteId: c.athleteId },
+          },
+        });
+        const near = original
+          ? []
+          : await tx.event.findMany({
+              where: {
+                athleteId: c.athleteId,
+                type: 'ACTIVITY',
+                startDate: {
+                  gte: new Date(fit.startDate.getTime() - 30000),
+                  lte: new Date(fit.startDate.getTime() + 30000),
+                },
+              },
+              include: { activity: true },
+            });
+        // Only a unique close recording with comparable sport, time and distance can match.
+        // An edited or ambiguous candidate is left untouched and uncounted for review.
+        const matches = near.filter(
+          (v) =>
+            v.activity?.sport === fit.activity.sport &&
+            Math.abs(
+              v.endDate.getTime() -
+                v.startDate.getTime() -
+                (fit.endDate.getTime() - fit.startDate.getTime()),
+            ) <= 30000 &&
+            fit.activity.distance > 0 &&
+            Math.abs(v.activity.distance - fit.activity.distance) <=
+              Math.max(50, fit.activity.distance * 0.01),
+        );
+        let activity =
+          original ??
+          (near.length === 1 && matches.length === 1
+            ? matches[0].activity
+            : null);
+        const needsReview = !activity && near.length > 0;
+        let created = false;
+        if (!activity && !needsReview) {
+          const event = await tx.event.create({
+            data: {
               athleteId: c.athleteId,
               type: 'ACTIVITY',
-              startDate: {
-                gte: new Date(fit.startDate.getTime() - 30000),
-                lte: new Date(fit.startDate.getTime() + 30000),
+              name,
+              startDate: fit.startDate,
+              endDate: fit.endDate,
+              activity: {
+                create: {
+                  ...fit.activity,
+                  provider: 'GARMIN',
+                  externalId: `garmin-personal:${c.athleteId}:${externalId}`,
+                  stream: json(fit.details.stream),
+                  segments: { create: fit.details.segments },
+                },
               },
             },
             include: { activity: true },
           });
-      // Only a unique close recording with comparable sport, time and distance can match.
-      // An edited or ambiguous candidate is left untouched and uncounted for review.
-      const matches = near.filter(
-        (v) =>
-          v.activity?.sport === fit.activity.sport &&
-          Math.abs(
-            v.endDate.getTime() -
-              v.startDate.getTime() -
-              (fit.endDate.getTime() - fit.startDate.getTime()),
-          ) <= 30000 &&
-          fit.activity.distance > 0 &&
-          Math.abs(v.activity.distance - fit.activity.distance) <=
-            Math.max(50, fit.activity.distance * 0.01),
-      );
-      let activity =
-        original ??
-        (near.length === 1 && matches.length === 1
-          ? matches[0].activity
-          : null);
-      const needsReview = !activity && near.length > 0;
-      let created = false;
-      if (!activity && !needsReview) {
-        const event = await tx.event.create({
+          activity = event.activity;
+          created = true;
+        }
+        const item = await tx.garminPersonalItem.create({
           data: {
-            athleteId: c.athleteId,
-            type: 'ACTIVITY',
-            name,
-            startDate: fit.startDate,
-            endDate: fit.endDate,
-            activity: {
-              create: {
-                ...fit.activity,
-                provider: 'GARMIN',
-                externalId: `garmin-personal:${c.athleteId}:${externalId}`,
-                stream: json(fit.details.stream),
-                segments: { create: fit.details.segments },
-              },
-            },
+            ...identity,
+            eventActivityId: activity?.eventActivityId,
+            processingPending: created,
+            needsReview,
           },
-          include: { activity: true },
         });
-        activity = event.activity;
-        created = true;
-      }
-      const item = await tx.garminPersonalItem.create({
-        data: {
-          ...identity,
-          eventActivityId: activity?.eventActivityId,
-          processingPending: created,
-          needsReview,
-        },
+        return { item, created };
+      },
+      { timeout: 15000 },
+    );
+  }
+
+  private async storeSkippedActivity(
+    c: GarminPersonalConnection,
+    externalId: string,
+    reason: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.current(tx, c, 'activities');
+      // Preserve existing matches, local-deletion tombstones and review receipts.
+      return tx.garminPersonalItem.upsert({
+        where: { connectionId_externalId: { connectionId: c.id, externalId } },
+        create: { connectionId: c.id, externalId, skipReason: reason },
+        update: {},
       });
-      return { item, created };
     });
+  }
+
+  private async importDownloadedActivity(
+    c: GarminPersonalConnection,
+    externalId: string,
+    name: string,
+    download: () => Promise<Buffer>,
+  ) {
+    const archive = await download();
+    let fit: ReturnType<typeof prepareManualFit>;
+    try {
+      fit = prepareManualFit(
+        await new FitParserStrategy().parse(
+          Uint8Array.from(extractPersonalFit(archive)).buffer,
+        ),
+      );
+    } catch (error) {
+      // Only explicit policy rejections are permanent. Corrupt/truncated files,
+      // failed downloads, parse errors and database errors remain retryable.
+      if (
+        error instanceof BadRequestException &&
+        [
+          'FIT_MULTISPORT_UNSUPPORTED',
+          'FIT_NOT_ACTIVITY',
+          'FIT_LIMIT',
+        ].includes(error.message)
+      ) {
+        return {
+          item: await this.storeSkippedActivity(c, externalId, error.message),
+          created: false,
+        };
+      }
+      throw error;
+    }
+    return this.storeActivity(c, externalId, name, fit);
   }
   async run(job: PersonalJob) {
     if (this.config.get('GARMIN_PERSONAL_API_ENABLED') !== true) return;
@@ -439,26 +503,17 @@ export class GarminPersonalService {
               });
               const saved = old
                 ? { item: old, created: false }
-                : await this.storeActivity(
+                : await this.importDownloadedActivity(
                     c,
                     activity.activityId,
                     activity.activityName ?? 'Garmin',
-                    prepareManualFit(
-                      await new FitParserStrategy().parse(
-                        Uint8Array.from(
-                          extractPersonalFit(
-                            await request(() =>
-                              this.client.download(
-                                credentials,
-                                activity.activityId,
-                              ),
-                            ),
-                          ),
-                        ).buffer,
+                    () =>
+                      request(() =>
+                        this.client.download(credentials, activity.activityId),
                       ),
-                    ),
                   );
-              if (saved.item.needsReview) result.needsReview++;
+              if (saved.item.skipReason) result.skipped++;
+              else if (saved.item.needsReview) result.needsReview++;
               else if (saved.created) result.imported++;
               else result.matched++;
               if (saved.item.processingPending && saved.item.eventActivityId) {
@@ -482,7 +537,8 @@ export class GarminPersonalService {
             } catch (error) {
               if (
                 error instanceof GarminPersonalError &&
-                error.code !== 'invalid_response'
+                error.code !== 'invalid_response' &&
+                error.code !== 'access_denied'
               )
                 throw error;
               result.failed++;

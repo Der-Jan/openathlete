@@ -31,7 +31,13 @@ and [Personal API FAQ](https://developer.garmin.com/gc-developer-program/persona
 
 The status distinguishes queued/running work, completion, partial results and
 failures. Counts distinguish newly imported activities, existing recordings,
-recordings needing review, failed files and pending activity-processing jobs.
+recordings needing review, unsupported files skipped, failed files and pending
+activity-processing jobs.
+Unsupported FIT recordings are counted separately as skipped, not as matches or
+failed downloads. Preferences are locked while a pull is queued or running;
+disconnecting remains available to stop it. API callers receive HTTP 409
+`sync_in_progress` if they attempt a preference change during that period.
+
 A request queues work; it does not mean import has finished. Each pull stops at
 1,000 recordings and reports truncation; use a smaller date range if needed.
 
@@ -40,7 +46,22 @@ A request queues work; it does not mean import has finished. Each pull stops at
 This first version imports activity FIT files, including streams and segments
 supported by OpenAthlete's existing FIT parser. It does not import daily health
 metrics or export planned workouts. Multisport children are excluded from search;
-unsupported or ambiguous FIT files are reported as failures instead of guessed.
+explicitly unsupported FIT files are skipped, while malformed files remain
+retryable failures rather than being guessed.
+
+Explicitly unsupported files (multisport recordings, non-activity FIT files or
+recordings exceeding the parser's sample/lap limits) retain a receipt with their
+reason. Subsequent pulls count them as skipped without downloading them again.
+These receipts persist across reconnects; this version has no reset/retry action
+for them. Corrupt archives, ambiguous parser failures and transient network or
+database errors do not create a permanent skipped receipt and can be retried.
+
+A 403 from an activity download is treated as an access failure for that recording:
+the batch continues, the key remains saved, and a later pull may retry the file.
+Garmin's download reference does not specify that a 403 proves an invalid key.
+A rejected key exchange still requires a replacement key; a bearer-token 401
+triggers the existing single renewal attempt. Activity writes use the same
+15-second transaction timeout as manual FIT imports.
 
 Stable Garmin activity IDs are recorded per athlete, so repeated pulls do not
 create another activity. Deleting an imported activity locally does not cause it

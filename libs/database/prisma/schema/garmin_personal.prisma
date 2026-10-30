@@ -30,6 +30,8 @@ model GarminPersonalItem {
   eventActivity     EventActivity?           @relation(fields: [eventActivityId], references: [eventActivityId], onDelete: SetNull)
   processingPending Boolean                  @default(false) @map("processing_pending")
   needsReview       Boolean                  @default(false) @map("needs_review")
+  /// Deterministically unsupported files are retained so automatic sync does not download them again.
+  skipReason        String?                  @map("skip_reason")
   createdAt         DateTime                 @default(now()) @map("created_at")
 
   @@unique([connectionId, externalId])
