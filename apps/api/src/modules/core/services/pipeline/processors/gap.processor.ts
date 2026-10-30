@@ -10,18 +10,15 @@ import {
   compressActivityStream,
   uncompressActivityStream,
 } from '../../../helpers/activity-stream';
+import { gradeAdjustedSpeed } from '../../../helpers/grade-adjusted-speed';
 import { roundSpeed } from '../../../helpers/round-activity-values';
 import { ActivityPipelineContext, ActivityProcessor } from '../types';
 
-function stravaPolynomial(gradePct: number): number {
-  return (
-    0.990554879163107 +
-    0.032844586542411 * gradePct +
-    0.002148347700774 * Math.pow(gradePct, 2) -
-    0.000004498739573 * Math.pow(gradePct, 3) -
-    0.000000598866801 * Math.pow(gradePct, 4)
-  );
-}
+/**
+ * Bump when the grade adjustment changes: activities computed with an older
+ * version are recomputed in the background (GapBackfillService).
+ */
+export const GAP_VERSION = 1;
 
 @Injectable()
 export class GapProcessor implements ActivityProcessor {
@@ -84,15 +81,8 @@ export class GapProcessor implements ActivityProcessor {
       const dAlt = (alt[k1] ?? alt[i]) - (alt[k0] ?? alt[i]);
 
       const v = dd / dt; // observed speed m/s over the window
-      let gradePct = dd > 0 ? (dAlt / dd) * 100 : 0;
-      // clamp unrealistic grades to reduce noise influence
-      if (!Number.isFinite(gradePct)) gradePct = 0;
-      gradePct = Math.max(-30, Math.min(30, gradePct));
-
-      const timeRatio = stravaPolynomial(gradePct);
-      // Convert observed speed to equivalent flat speed:
-      // If uphill (timeRatio > 1), flat-equivalent speed should be higher
-      const vGap = timeRatio > 0 ? v * timeRatio : v;
+      const grade = dd > 0 ? dAlt / dd : 0;
+      const vGap = gradeAdjustedSpeed(v, Number.isFinite(grade) ? grade : 0);
 
       gapStream[i] = vGap;
       if (Number.isFinite(vGap)) {
@@ -114,6 +104,7 @@ export class GapProcessor implements ActivityProcessor {
       data: {
         stream: compressed as InputJsonValue,
         averageGapSpeed: roundSpeed(avgGap) ?? undefined,
+        gapVersion: GAP_VERSION,
       },
     });
   }

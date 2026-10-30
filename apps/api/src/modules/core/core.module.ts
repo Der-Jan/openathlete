@@ -161,6 +161,8 @@ import { WeatherService } from './services/weather/weather.service';
     EventService,
     ActivityRecordsService,
     ActivityPipelineService,
+    GapProcessor,
+    NormalizationProcessor,
     ActivityDetailService,
     TrainingLoadService,
     TrainingPlanService,

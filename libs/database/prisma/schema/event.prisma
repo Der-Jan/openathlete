@@ -188,6 +188,9 @@ model EventActivity {
   /// Version of the record computation its records come from: older ones
   /// are recomputed in the background
   recordsVersion         Int                @default(0) @map("records_version")
+  /// Version of the grade adjustment averageGapSpeed comes from: older ones
+  /// are recomputed in the background
+  gapVersion             Int                @default(0) @map("gap_version")
   /// Activity description/notes
   description            String             @default("")
   /// Average Grade Adjusted Pace (GAP) speed in m/s (normalized for elevation)

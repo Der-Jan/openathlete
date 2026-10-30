@@ -131,7 +131,11 @@ export class EventService {
       activity:
         | (Omit<
             EventActivity,
-            'stream' | 'recordsVersion' | 'originalStream' | 'originalSummary'
+            | 'stream'
+            | 'recordsVersion'
+            | 'gapVersion'
+            | 'originalStream'
+            | 'originalSummary'
           > & {
             segments?: ActivitySegment[];
             trainingLoadEntries?: Array<{ value: number }>;
@@ -1636,7 +1640,11 @@ export class EventService {
       note: EventNote | null;
       activity: Omit<
         EventActivity,
-        'stream' | 'recordsVersion' | 'originalStream' | 'originalSummary'
+        | 'stream'
+        | 'recordsVersion'
+        | 'gapVersion'
+        | 'originalStream'
+        | 'originalSummary'
       > | null;
     },
   ): Promise<boolean> {
