@@ -882,7 +882,9 @@ export class GarminProviderService
       // Other 4xx won't change on retry: the summary type is not shared
       // (412), the user is gone (403), the data expired (410)...
       if (status && status >= 400 && status < 500 && status !== 429) {
-        this.logger.warn(
+        // Without an account Garmin always refuses the pull: its pings for
+        // users unknown here are routine, not a fault worth a warning
+        this.logger[account ? 'warn' : 'debug'](
           `Garmin ${summaryType} callback answered ${status}${account ? ` for account ${account.providerAccountId}` : ''}: ${garminErrorMessage(error)}`,
         );
         return [];
