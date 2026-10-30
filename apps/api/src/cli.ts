@@ -62,7 +62,22 @@ async function queueFullImports(
   const connection = redisUrl
     ? new Redis(redisUrl, { maxRetriesPerRequest: null })
     : new Redis({ maxRetriesPerRequest: null });
-  const queue = new Queue('provider-full-import', { connection });
+  const queue = new Queue('provider-full-import', {
+    connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 60_000,
+      },
+      removeOnComplete: {
+        age: 7 * 24 * 3600,
+      },
+      removeOnFail: {
+        age: 7 * 24 * 3600,
+      },
+    },
+  });
   try {
     for (const providerAccountId of providerAccountIds) {
       const jobId = `full-import-${providerAccountId}`;

@@ -138,6 +138,20 @@ function garminErrorMessage(error: unknown): string {
   return error.message;
 }
 
+/**
+ * Reads the end timestamp (in seconds) of the conflicting backfill window
+ * from Garmin's 409 message:
+ * `[<uuid>]duplicate backfill processed at ... [<start> to <end>]`
+ */
+function parseBackfillConflictEnd(message: string): number | null {
+  const match = message.match(
+    /\bto\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/i,
+  );
+  if (!match) return null;
+  const parsed = Date.parse(match[1]);
+  return Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
+}
+
 export function parseGarminPermissions(
   scopes?: string | null,
 ): string[] | null {
@@ -604,6 +618,16 @@ export class GarminProviderService
     const end = Math.floor(Date.now() / 1000);
     const start = end - Math.floor(this.backfillWindowMs / 1000);
     const accessToken = await this.getValidAccessToken(account);
+    await this.requestActivitiesBackfill(accessToken, start, end);
+    return { queuedActivities: 0, backfillRequested: true };
+  }
+
+  private async requestActivitiesBackfill(
+    accessToken: string,
+    start: number,
+    end: number,
+    retryOnConflict = true,
+  ): Promise<void> {
     try {
       await axios.get(
         `https://${GARMIN_API_HOST}/wellness-api/rest/backfill/activities`,
@@ -618,9 +642,22 @@ export class GarminProviderService
       );
     } catch (error) {
       const status = isAxiosError(error) ? error.response?.status : undefined;
-      // The same range was already requested: its activities are on the way
+      // Garmin rejects the whole window with 409 if part of it overlaps an
+      // earlier backfill (`{"errorMessage":"... [<start> to <end>]"}`):
+      // advance past the conflicting window to backfill the remaining gap
       if (status === 409) {
-        return { queuedActivities: 0, backfillRequested: true };
+        const conflictEnd = retryOnConflict
+          ? parseBackfillConflictEnd(garminErrorMessage(error))
+          : null;
+        if (conflictEnd && conflictEnd > start && conflictEnd < end) {
+          await this.requestActivitiesBackfill(
+            accessToken,
+            conflictEnd,
+            end,
+            false,
+          );
+        }
+        return;
       }
       if (status === 429) {
         const retryAfter = Number(
@@ -647,7 +684,6 @@ export class GarminProviderService
       }
       throw error;
     }
-    return { queuedActivities: 0, backfillRequested: true };
   }
 
   /** Not used: Garmin only allows pulls answering its notifications. */

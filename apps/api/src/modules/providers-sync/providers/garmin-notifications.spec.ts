@@ -183,4 +183,38 @@ describe('GarminProviderService.processNotification', () => {
     ).rejects.toThrow('Invalid Garmin callbackURL');
     expect(mockedGet).not.toHaveBeenCalled();
   });
+
+  it('advances past a conflicting window when Garmin answers 409', async () => {
+    const conflictStart = new Date(Date.now() - 33 * 24 * 3600 * 1000);
+    const conflictEnd = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    const garminAccount = {
+      ...account,
+      scopes: 'permissions:ACTIVITY_EXPORT',
+    } as unknown as ProviderAccount;
+    const { service } = setup([garminAccount]);
+
+    mockedGet
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Conflict'), {
+          isAxiosError: true,
+          response: {
+            status: 409,
+            data: {
+              errorMessage: `[1cf00fd8-6c33-4b7f-8e81-4991aa8473bb]duplicate backfill processed at ${conflictEnd.toISOString()} [${conflictStart.toISOString()} to ${conflictEnd.toISOString()}]`,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce({ status: 202, data: '' });
+
+    await expect(service.queueFullImport(garminAccount)).resolves.toEqual({
+      queuedActivities: 0,
+      backfillRequested: true,
+    });
+
+    expect(mockedGet).toHaveBeenCalledTimes(2);
+    expect(mockedGet.mock.calls[1][1].params.summaryStartTimeInSeconds).toBe(
+      Math.floor(conflictEnd.getTime() / 1000),
+    );
+  });
 });
