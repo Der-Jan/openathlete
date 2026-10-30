@@ -208,6 +208,26 @@ describe('StatisticsService (PostgreSQL)', () => {
     expect(buckets[0]).toMatchObject({ period: '2026-02-23', partial: true });
   });
 
+  it('adds up the active days on the calendar of the athlete', async () => {
+    await prisma.user.update({
+      where: { userId: DELETED_USER_ID },
+      data: { timeZone: 'Pacific/Auckland' },
+    });
+    await activity('monday', '2026-03-15T20:00:00Z');
+    await activity('monday too', '2026-03-16T02:00:00Z');
+
+    const { days } = await service.getDays(athlete, period);
+    expect(days).toEqual([
+      {
+        date: '2026-03-16',
+        movingTime: 6000,
+        distance: 20000,
+        elevationGain: 200,
+        count: 2,
+      },
+    ]);
+  });
+
   it('weighs averages by the time in motion', async () => {
     await activity('long', '2026-03-10T08:00:00Z', {
       movingTime: 9000,

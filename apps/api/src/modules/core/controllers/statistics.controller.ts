@@ -111,6 +111,29 @@ export class StatisticsController {
 
   @UseGuards(AuthGuard('jwt'), UserTypeGuard)
   @ApiBearerAuth()
+  @Get('days')
+  @ApiOperation({
+    summary: 'Active days of a period',
+    description:
+      "Time in motion, distance, elevation gain and activity count of each day with an activity, on the athlete's calendar.",
+  })
+  @ApiQuery({ name: 'athleteId', type: Number })
+  @ApiQuery({ name: 'from', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'to', type: String, format: 'date-time' })
+  @ApiQuery({ name: 'sport', enum: SportType, required: false })
+  @ApiResponse({ status: 400, description: 'Invalid period' })
+  @ApiResponse({ status: 403, description: 'Not allowed to read the athlete' })
+  @ApiResponse({ status: 404, description: 'Athlete not found' })
+  getDays(
+    @JwtUser() user: AuthUser,
+    @Query(new ZodValidationPipe(getStatisticsSectionQuerySchema))
+    query: GetStatisticsSectionQueryDto,
+  ) {
+    return this.statisticsService.getDays(user, query);
+  }
+
+  @UseGuards(AuthGuard('jwt'), UserTypeGuard)
+  @ApiBearerAuth()
   @Get('trends')
   @ApiOperation({
     summary: "How a sport's averages evolve",

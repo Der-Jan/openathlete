@@ -52,6 +52,16 @@ export const useStatisticsVolumeQuery = (
     queryKey: [statisticsKeys.volume, ...paramsKey(params)],
   });
 
+export const useStatisticsDaysQuery = (
+  params: StatisticsSectionParams,
+  enabled: boolean,
+) =>
+  useQuery({
+    ...sectionOptions(enabled),
+    queryFn: () => StatisticsAPI.getDays(params),
+    queryKey: [statisticsKeys.days, ...paramsKey(params)],
+  });
+
 export const useStatisticsTrendsQuery = (
   params: StatisticsSectionParams & { sport: SPORT_TYPE },
   enabled: boolean,

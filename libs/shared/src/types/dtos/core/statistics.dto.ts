@@ -140,6 +140,17 @@ export const statisticsTrendsSchema = z.object({
 });
 export type StatisticsTrendsDto = z.infer<typeof statisticsTrendsSchema>;
 
+export const statisticsDaysSchema = z.object({
+  /** Days with an activity, on the athlete's calendar, oldest first */
+  days: z.array(
+    statisticsTotalsSchema.omit({ load: true }).extend({
+      /** YYYY-MM-DD */
+      date: z.string(),
+    }),
+  ),
+});
+export type StatisticsDaysDto = z.infer<typeof statisticsDaysSchema>;
+
 export const statisticsLoadSchema = z.object({
   granularity: z.enum(['day', 'week']),
   /** A week holds its total load, and its form on its last day */

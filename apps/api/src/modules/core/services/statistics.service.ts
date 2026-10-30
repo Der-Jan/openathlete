@@ -12,6 +12,7 @@ import {
   GetStatisticsSectionQueryDto,
   GetStatisticsTrendsQueryDto,
   SPORT_TYPE,
+  StatisticsDaysDto,
   StatisticsFiltersDto,
   StatisticsLoadDto,
   StatisticsOverviewDto,
@@ -222,6 +223,24 @@ export class StatisticsService {
           .map(({ period: _period, ...sportVolume }) => sportVolume),
       })),
     };
+  }
+
+  /** Every active day of a period, for the calendar and the yearly totals. */
+  async getDays(
+    user: AuthUser,
+    { athleteId, from, to, sport }: GetStatisticsSectionQueryDto,
+  ): Promise<StatisticsDaysDto> {
+    const timeZone = await this.readableTimeZone(user, athleteId);
+    const days = await this.prisma.$queryRaw<StatisticsDaysDto['days']>`
+      SELECT ${this.bucketOf('day', timeZone)} AS date,
+        sum(a.moving_time)::float8 AS "movingTime",
+        sum(a.distance)::float8 AS distance,
+        sum(a.elevation_gain)::float8 AS "elevationGain",
+        count(*)::int AS count
+      ${this.activitiesOf(athleteId, from, to, sport)}
+      GROUP BY 1
+      ORDER BY 1`;
+    return { days };
   }
 
   /** How the averages of a sport evolve, bucket by bucket. */

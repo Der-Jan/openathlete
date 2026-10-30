@@ -2,6 +2,7 @@ import client, { routes } from '@/utils/axios';
 
 import {
   SPORT_TYPE,
+  StatisticsDaysDto,
   StatisticsFiltersDto,
   StatisticsLoadDto,
   StatisticsOverviewDto,
@@ -37,6 +38,13 @@ export class StatisticsAPI {
     params: StatisticsSectionParams,
   ): Promise<StatisticsVolumeDto> {
     const res = await client.get(routes.statistics.volume, { params });
+    return res.data;
+  }
+
+  static async getDays(
+    params: StatisticsSectionParams,
+  ): Promise<StatisticsDaysDto> {
+    const res = await client.get(routes.statistics.days, { params });
     return res.data;
   }
 

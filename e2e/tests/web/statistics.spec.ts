@@ -32,6 +32,10 @@ test('statistics read the last weeks, by section, with filters in the URL', asyn
   ).toContainText('%');
   await expect(volume.locator('.recharts-rectangle').first()).toBeVisible();
 
+  const calendar = page.locator('[data-activity-calendar]');
+  await calendar.scrollIntoViewIfNeeded();
+  await expect(calendar.locator('[title]').first()).toBeAttached();
+
   const tsb = page.locator('[data-tsb-chart]');
   await tsb.scrollIntoViewIfNeeded();
   await expect(tsb).toBeVisible();
