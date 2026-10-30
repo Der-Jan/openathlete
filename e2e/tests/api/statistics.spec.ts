@@ -14,9 +14,13 @@ test("refuses another athlete's statistics", async ({ request }) => {
   const { athleteId } = (await me.json()) as { athleteId: number };
 
   const headers = apiHeaders(undefined, stranger.accessToken);
+  const period = 'from=2026-01-01&to=2026-02-01';
   for (const path of [
-    `/statistics/weekly-volume?athleteId=${athleteId}`,
-    `/statistics?athleteId=${athleteId}&start=2026-01-01&end=2026-02-01`,
+    `/statistics/filters?athleteId=${athleteId}`,
+    `/statistics/overview?athleteId=${athleteId}&${period}`,
+    `/statistics/volume?athleteId=${athleteId}&${period}`,
+    `/statistics/trends?athleteId=${athleteId}&${period}&sport=RUNNING`,
+    `/statistics/load?athleteId=${athleteId}&${period}`,
   ]) {
     const response = await request.get(`${API_URL}${path}`, { headers });
     expect(response.status(), path).toBe(403);

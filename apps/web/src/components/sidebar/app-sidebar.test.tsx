@@ -144,7 +144,6 @@ describe('AppSidebar collapsed on desktop', () => {
     expect(menuLinks()).toEqual([
       '/dashboard/calendar/102',
       '/dashboard/statistics/102',
-      '/dashboard/progression/102',
       '/dashboard/records/102',
       '/dashboard/metrics/102',
       '/dashboard/settings/102',

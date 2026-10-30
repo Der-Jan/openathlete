@@ -90,33 +90,6 @@ export const useTrainingLoadMetrics = (
     ],
   });
 
-export const useTrainingLoadHistory = (
-  calculationType: TrainingLoadCalculationType,
-  startDate: Date,
-  endDate: Date,
-  athleteId?: number,
-  opt?: QueryOptions<
-    Awaited<ReturnType<typeof TrainingLoadAPI.getTrainingLoadHistory>>
-  >,
-) =>
-  useQuery({
-    ...opt,
-    queryFn: () =>
-      TrainingLoadAPI.getTrainingLoadHistory(
-        calculationType,
-        startDate,
-        endDate,
-        athleteId,
-      ),
-    queryKey: [
-      trainingLoadKeys.getTrainingLoadHistory,
-      calculationType,
-      startDate.toISOString(),
-      endDate.toISOString(),
-      athleteId,
-    ],
-  });
-
 export const useWeeklyLoadSummaryQuery = (
   startDate?: Date,
   endDate?: Date,

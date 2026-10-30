@@ -3,14 +3,14 @@ import { sportTypeLabelMap } from '@/utils/label-map/core';
 import { useMemo } from 'react';
 import { Pie, PieChart } from 'recharts';
 
-import { GetStatisticsForPeriodDto, SPORT_TYPE } from '@openathlete/shared';
+import { SPORT_TYPE, StatisticsOverviewDto } from '@openathlete/shared';
 
 import { SportIcon } from '../sport-icon/sport-icon';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '../ui/chart';
 
 interface P {
-  sports: GetStatisticsForPeriodDto['sports'];
-  keyToUse: keyof Omit<GetStatisticsForPeriodDto['sports'][0], 'sport'>;
+  sports: StatisticsOverviewDto['sports'];
+  keyToUse: keyof Omit<StatisticsOverviewDto['sports'][0], 'sport'>;
   formatter?: (value: number) => string;
   /** Sports in color order, so a sport keeps its color across charts */
   colorOrder?: SPORT_TYPE[];

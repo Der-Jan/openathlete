@@ -6,6 +6,7 @@ export * from './date';
 export * from './metric-unit.map';
 export * from './metric-calculation.map';
 export * from './metric-category.map';
+export * from './metric-registry';
 export * from './sport-config';
 export * from './cycle-colors';
 export * from './provider-import';

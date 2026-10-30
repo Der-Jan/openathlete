@@ -1,20 +1,17 @@
-import {
-  TrainingLoadCalculationType,
-  useTrainingLoadHistory,
-} from '@/api/training-load';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useStatisticsLoadQuery } from '@/api/statistics';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
-import { Loader } from '@/components/ui/loader';
+import { SkeletonChart } from '@/components/ui/skeleton';
 import * as m from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime';
 import { getDateFnsLocale } from '@/utils/locales';
 import { TSB_DETRAINING, TSB_OVERREACHING } from '@/utils/training-form';
-import { format } from 'date-fns';
-import { useMemo } from 'react';
+import { format, parseISO } from 'date-fns';
+import { ReactNode, useMemo } from 'react';
 import {
   Bar,
   CartesianGrid,
@@ -27,11 +24,14 @@ import {
   YAxis,
 } from 'recharts';
 
+import { MetricInfo } from '../statistics/metric-info';
+import { Period } from '../statistics/statistics-period';
+
 interface TrainingLoadChartProps {
-  startDate?: Date;
-  endDate?: Date;
-  defaultCalculationType?: TrainingLoadCalculationType;
-  athleteId?: number;
+  athleteId: number;
+  period: Period | null;
+  /** Off until the chart comes near the screen */
+  enabled: boolean;
 }
 
 const COLORS = {
@@ -52,10 +52,16 @@ type Series = keyof typeof COLORS;
 function Legend({
   items,
 }: {
-  items: { key: string; color: string; label: string; value?: number }[];
+  items: {
+    key: string;
+    color: string;
+    label: string;
+    value?: number;
+    info?: ReactNode;
+  }[];
 }) {
   return (
-    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+    <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       {items.map((item) => (
         <li key={item.key} className="flex items-center gap-1.5">
           <span
@@ -68,6 +74,7 @@ function Legend({
               {item.value.toFixed(1)}
             </span>
           )}
+          {item.info}
         </li>
       ))}
     </ul>
@@ -75,48 +82,31 @@ function Legend({
 }
 
 export function TrainingLoadChart({
-  startDate,
-  endDate,
   athleteId,
+  period,
+  enabled,
 }: TrainingLoadChartProps) {
-  const calculationType = TrainingLoadCalculationType.TRIMP;
-
-  // Default to last 12 weeks
-  const defaultStartDate = useMemo(() => {
-    const date = new Date();
-    date.setDate(date.getDate() - 84); // 12 weeks
-    return date;
-  }, []);
-
-  const finalStartDate = startDate || defaultStartDate;
-  const finalEndDate = endDate || new Date();
   const dateFnsLocale = getDateFnsLocale(getLocale());
-
-  const { data: history, isLoading } = useTrainingLoadHistory(
-    calculationType,
-    finalStartDate,
-    finalEndDate,
-    athleteId,
+  const { data, isFetching } = useStatisticsLoadQuery(
+    {
+      athleteId,
+      from: period?.start ?? new Date(0),
+      to: period?.end ?? new Date(0),
+    },
+    enabled && !!period,
   );
   const chartData = useMemo(
     () =>
-      (history ?? [])
-        .filter(
-          (item) =>
-            item.date instanceof Date && !Number.isNaN(item.date.getTime()),
-        )
-        .map((item) => ({
-          date: item.date.getTime(),
-          load: item.load,
-          atl: item.atl,
-          ctl: item.ctl,
-          tsb: item.tsb,
-        })),
-    [history],
+      (data?.points ?? []).map((point) => ({
+        ...point,
+        // A plain date: parseISO reads it at local midnight
+        date: parseISO(point.date).getTime(),
+      })),
+    [data],
   );
 
   const labels: Record<Series, string> = {
-    load: m.daily_load(),
+    load: data?.granularity === 'week' ? m.weekly_load() : m.daily_load(),
     ctl: m.fitness_ctl(),
     atl: m.fatigue_atl(),
     tsb: m.tsb_balance(),
@@ -167,19 +157,22 @@ export function TrainingLoadChart({
   ];
 
   return (
-    <Card>
-      <CardHeader className="space-y-0 pb-2">
-        <CardTitle className="text-base font-medium">
-          {m.training_load_history()}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader size="lg" />
+    <Card
+      className={`gap-0 py-0 transition-opacity ${isFetching ? 'opacity-70' : ''}`}
+    >
+      <CardContent className="p-4">
+        {!data ? (
+          <div className="space-y-6">
+            <SkeletonChart className="h-[352px]" />
+            <SkeletonChart className="h-[232px]" />
           </div>
         ) : chartData.length > 0 ? (
           <div className="space-y-6">
+            {chartData.every((point) => point.load === 0) && (
+              <p className="text-sm text-muted-foreground">
+                {m.statistics_load_empty()}
+              </p>
+            )}
             <div className="space-y-3" data-training-load-chart>
               <Legend
                 items={(['load', 'ctl', 'atl'] as const).map((key) => ({
@@ -187,6 +180,7 @@ export function TrainingLoadChart({
                   color: COLORS[key],
                   label: labels[key],
                   value: latest?.[key],
+                  info: <MetricInfo metric={key === 'load' ? 'trimp' : key} />,
                 }))}
               />
               <ChartContainer config={config} className="h-[320px] w-full">
@@ -202,6 +196,7 @@ export function TrainingLoadChart({
                     domain={['dataMin', 'dataMax']}
                     tickFormatter={tickDate}
                     tick={{ fontSize: 11 }}
+                    minTickGap={32}
                   />
                   <YAxis width={40} tick={{ fontSize: 11 }} />
                   {tooltip}
@@ -236,6 +231,7 @@ export function TrainingLoadChart({
               <Legend
                 items={[
                   {
+                    info: <MetricInfo metric="tsb" />,
                     key: 'tsb',
                     color: COLORS.tsb,
                     label: labels.tsb,
@@ -282,6 +278,7 @@ export function TrainingLoadChart({
                     domain={['dataMin', 'dataMax']}
                     tickFormatter={tickDate}
                     tick={{ fontSize: 11 }}
+                    minTickGap={32}
                   />
                   <YAxis
                     width={40}

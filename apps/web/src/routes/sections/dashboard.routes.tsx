@@ -4,9 +4,19 @@ import { AuthGuard } from '@/guards';
 import { SettingsPage } from '@/pages/dashboard/settings';
 import { SummaryPage } from '@/pages/dashboard/summary/athlete';
 import { Suspense, lazy } from 'react';
-import { Outlet, RouteObject } from 'react-router-dom';
+import { Navigate, Outlet, RouteObject, useParams } from 'react-router-dom';
 
 import { getPath } from '../paths';
+
+function ProgressionRedirect() {
+  const { athleteId } = useParams();
+  return (
+    <Navigate
+      to={`${getPath(['dashboard', 'statistics'])}/${athleteId}`}
+      replace
+    />
+  );
+}
 
 const IndexPage = lazy(() =>
   import('@/pages/dashboard').then((module) => ({
@@ -59,18 +69,6 @@ const AthleteRecordsPage = lazy(() =>
 const AthleteMetricsPage = lazy(() =>
   import('@/pages/dashboard/metrics/athlete').then((module) => ({
     default: module.AthleteMetricsPage,
-  })),
-);
-
-const ProgressionPage = lazy(() =>
-  import('@/pages/dashboard/progression').then((module) => ({
-    default: module.ProgressionPage,
-  })),
-);
-
-const AthleteProgressionPage = lazy(() =>
-  import('@/pages/dashboard/progression/athlete').then((module) => ({
-    default: module.AthleteProgressionPage,
   })),
 );
 
@@ -151,13 +149,14 @@ export const dashboardRoutes: RouteObject[] = [
         path: getPath(['dashboard', 'statistics', 'athleteId']),
         element: <AthleteStatisticsPage />,
       },
+      // The page merged into Statistics: old links and bookmarks still work
       {
-        path: getPath(['dashboard', 'progression']),
-        element: <ProgressionPage />,
+        path: '/dashboard/progression',
+        element: <Navigate to={getPath(['dashboard', 'statistics'])} replace />,
       },
       {
-        path: getPath(['dashboard', 'progression', 'athleteId']),
-        element: <AthleteProgressionPage />,
+        path: '/dashboard/progression/:athleteId',
+        element: <ProgressionRedirect />,
       },
       {
         path: getPath(['dashboard', 'records']),
