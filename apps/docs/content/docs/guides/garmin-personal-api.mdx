@@ -100,8 +100,9 @@ credentials unreadable, requiring users to reconnect.
 ## Self-hosting and API contract
 
 Apply the normal database migrations and deploy API and web from the same release.
-The migration adds `garmin_personal_connection` and `garmin_personal_item`; existing
-provider accounts and activities are not rewritten. Redis and an API worker with
+The migrations add `garmin_personal_connection` and `garmin_personal_item`,
+including a nullable `skip_reason` receipt field. Existing provider accounts and
+activities are not rewritten. Redis and an API worker with
 `ENABLE_ACTIVITY_IMPORT=true` are required for pulls; activity analysis requires
 `ENABLE_ACTIVITY_PROCESSING=true`. These workers may run in the API container or a
 separate worker container, as described in the [self-hosting guide](/docs/getting-started/self-hosting).
